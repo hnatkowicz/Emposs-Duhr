@@ -828,6 +828,15 @@ function renderClueRound() {
     })
   );
 
+  // Show which player starts this clue round
+const starter = state.playersInGame[state.game.startingPlayerIndex];
+card.appendChild(
+  createEl("div", {
+    className: "subtle-start-label",
+    text: `Start with ${starter.name}`
+  })
+);
+
   card.appendChild(
     createEl("p", {
       className: "hint",
