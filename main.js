@@ -180,7 +180,7 @@ function renderSplash() {
   card.appendChild(
     createEl("h1", {
       className: "section-title",
-      text: "Impostor Word Game"
+      text: "Emposs Duhr - A Word Game"
     })
   );
 
@@ -1497,3 +1497,4 @@ function renderGameOver() {
 // ---------- Kick things off ----------
 
 render();
+
