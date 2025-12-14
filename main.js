@@ -443,7 +443,7 @@ function renderSplash() {
   const container = createEl("div", { className: "stack" });
   const card = createEl("div", { className: "card stack" });
 
-  card.appendChild(createEl("h1", { className: "section-title", text: "Emposs Duhr - A Word Game (<em>V1.2</em>)" }));
+  card.appendChild(createEl("h1", { className: "section-title", text: "Emposs Duhr - A Word Game" }));
 
   const pack = getSelectedPack();
   card.appendChild(createEl("p", {
@@ -1524,4 +1524,5 @@ function renderGameOver() {
 
 // ---------- Kick things off ----------
 render();
+
 
