@@ -445,7 +445,7 @@ function renderSplash() {
   const container = createEl("div", { className: "stack" });
   const card = createEl("div", { className: "card stack" });
 
-  card.appendChild(createEl("h1", { className: "section-title", text: 'Emposs Duhr - V ${GAME_VERSION}' }));
+  card.appendChild(createEl("h1", { className: "section-title", text: `Emposs Duhr - V ${GAME_VERSION}` }));
 
   const pack = getSelectedPack();
   card.appendChild(createEl("p", {
@@ -1526,6 +1526,7 @@ function renderGameOver() {
 
 // ---------- Kick things off ----------
 render();
+
 
 
 
