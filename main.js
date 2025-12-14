@@ -21,54 +21,257 @@ function savePersistent() {
 
 const persistent = loadPersistent();
 
-const MAX_PLAYERS = 10;
 const MIN_PLAYERS = 3;
+const MAX_PLAYERS = 10;
 
-// Locked color pairs (BG + Text) — 10 total, unique per game.
+// Locked 10 color pairs (bg + fg)
 const PLAYER_COLOR_PAIRS = [
   { bg: "#2563EB", fg: "#FFFFFF" }, // Royal Blue
   { bg: "#15803D", fg: "#FFFFFF" }, // Forest Green
   { bg: "#6D28D9", fg: "#FFFFFF" }, // Deep Purple
-  { bg: "#B91C1C", fg: "#FFFFFF" }, // Crimson Red
-  { bg: "#334155", fg: "#FFFFFF" }, // Slate Gray
-  { bg: "#D97706", fg: "#111827" }, // Warm Amber
+  { bg: "#B91C1C", fg: "#FFFFFF" }, // Crimson
+  { bg: "#334155", fg: "#FFFFFF" }, // Slate
+  { bg: "#D97706", fg: "#111827" }, // Amber (dark text)
   { bg: "#0F766E", fg: "#FFFFFF" }, // Teal
   { bg: "#BE185D", fg: "#FFFFFF" }, // Rose
-  { bg: "#0284C7", fg: "#FFFFFF" }, // Sky Blue
+  { bg: "#0284C7", fg: "#FFFFFF" }, // Sky
   { bg: "#4D7C0F", fg: "#FFFFFF" }  // Dark Lime
 ];
 
+// Badge reference (primary badge shown on player button)
+// Gate rules:
+// - roundsPlayed < 20 => Noob
+// - roundsPlayed >= 20 but gamesPlayed < 20 => Unranked
+// - else percentage/rate badges
+const BADGES = [
+  // Gates
+  {
+    id: "noob",
+    icon: "🐣",
+    code: "NB",
+    label: "Noob",
+    description: "Play at least 20 rounds to graduate from Noob.",
+    gate: (s) => (s.roundsPlayed || 0) < 20
+  },
+  {
+    id: "unranked",
+    icon: "🎟️",
+    code: "UR",
+    label: "Unranked",
+    description: "Play at least 20 games to unlock ranked badges.",
+    gate: (s) => (s.roundsPlayed || 0) >= 20 && (s.gamesPlayed || 0) < 20
+  },
+
+  // Ranked (require games >= 20 AND rounds >= 20 as baseline stability)
+  // Sleuth accuracy (correctVotes/totalVotes)
+  {
+    id: "eagle_eye",
+    icon: "🦅",
+    code: "EE",
+    label: "Eagle Eye",
+    description: "Accusation accuracy ≥ 70% (min 20 accusations).",
+    qualifies: (s) => {
+      const tv = s.totalVotes || 0;
+      const cv = s.correctVotes || 0;
+      if (tv < 20) return false;
+      return (cv / tv) >= 0.70;
+    },
+    priority: 100
+  },
+  {
+    id: "hawk_eye",
+    icon: "🦅",
+    code: "HE",
+    label: "Hawk Eye",
+    description: "Accusation accuracy ≥ 75% (min 40 accusations).",
+    qualifies: (s) => {
+      const tv = s.totalVotes || 0;
+      const cv = s.correctVotes || 0;
+      if (tv < 40) return false;
+      return (cv / tv) >= 0.75;
+    },
+    priority: 120
+  },
+  {
+    id: "oracle",
+    icon: "🔮",
+    code: "OR",
+    label: "Oracle",
+    description: "Accusation accuracy ≥ 80% (min 60 accusations).",
+    qualifies: (s) => {
+      const tv = s.totalVotes || 0;
+      const cv = s.correctVotes || 0;
+      if (tv < 60) return false;
+      return (cv / tv) >= 0.80;
+    },
+    priority: 140
+  },
+
+  // Impostor win rate (imposterWins/imposterRounds)
+  {
+    id: "shapeshifter",
+    icon: "🎭",
+    code: "SS",
+    label: "Shapeshifter",
+    description: "Impostor win rate ≥ 50% (min 10 impostor rounds).",
+    qualifies: (s) => {
+      const ir = s.imposterRounds || 0;
+      const iw = s.imposterWins || 0;
+      if (ir < 10) return false;
+      return (iw / ir) >= 0.50;
+    },
+    priority: 95
+  },
+  {
+    id: "master",
+    icon: "🎭",
+    code: "MI",
+    label: "Master Impersonator",
+    description: "Impostor win rate ≥ 60% (min 20 impostor rounds).",
+    qualifies: (s) => {
+      const ir = s.imposterRounds || 0;
+      const iw = s.imposterWins || 0;
+      if (ir < 20) return false;
+      return (iw / ir) >= 0.60;
+    },
+    priority: 115
+  },
+  {
+    id: "ghost",
+    icon: "👻",
+    code: "GH",
+    label: "Ghost",
+    description: "Impostor win rate ≥ 70% (min 30 impostor rounds).",
+    qualifies: (s) => {
+      const ir = s.imposterRounds || 0;
+      const iw = s.imposterWins || 0;
+      if (ir < 30) return false;
+      return (iw / ir) >= 0.70;
+    },
+    priority: 135
+  },
+
+  // Playstyle: accusation frequency (totalVotes/roundsPlayed)
+  {
+    id: "wallflower",
+    icon: "🌱",
+    code: "WF",
+    label: "Wallflower",
+    description: "Accusation rate ≤ 15% (min 20 rounds).",
+    qualifies: (s) => {
+      const rp = s.roundsPlayed || 0;
+      const tv = s.totalVotes || 0;
+      if (rp < 20) return false;
+      const rate = rp > 0 ? (tv / rp) : 0;
+      return rate <= 0.15;
+    },
+    priority: 70
+  },
+  {
+    id: "balanced",
+    icon: "⚖️",
+    code: "BL",
+    label: "Balanced",
+    description: "Accusation rate between 25% and 55% (min 20 rounds).",
+    qualifies: (s) => {
+      const rp = s.roundsPlayed || 0;
+      const tv = s.totalVotes || 0;
+      if (rp < 20) return false;
+      const rate = rp > 0 ? (tv / rp) : 0;
+      return rate >= 0.25 && rate <= 0.55;
+    },
+    priority: 75
+  },
+  {
+    id: "gunslinger",
+    icon: "🤠",
+    code: "GS",
+    label: "Gunslinger",
+    description: "Accusation rate ≥ 70% (min 20 rounds).",
+    qualifies: (s) => {
+      const rp = s.roundsPlayed || 0;
+      const tv = s.totalVotes || 0;
+      if (rp < 20) return false;
+      const rate = rp > 0 ? (tv / rp) : 0;
+      return rate >= 0.70;
+    },
+    priority: 80
+  },
+
+  // Overall: points per round (totalPoints/roundsPlayed) – calibrates itself over time
+  {
+    id: "contributor",
+    icon: "🧩",
+    code: "CN",
+    label: "Contributor",
+    description: "Points per round ≥ 0.8 (min 20 rounds).",
+    qualifies: (s) => {
+      const rp = s.roundsPlayed || 0;
+      const tp = s.totalPoints || 0;
+      if (rp < 20) return false;
+      return (tp / rp) >= 0.8;
+    },
+    priority: 85
+  },
+  {
+    id: "carry",
+    icon: "🏋️",
+    code: "CR",
+    label: "Carry",
+    description: "Points per round ≥ 1.2 (min 20 rounds).",
+    qualifies: (s) => {
+      const rp = s.roundsPlayed || 0;
+      const tp = s.totalPoints || 0;
+      if (rp < 20) return false;
+      return (tp / rp) >= 1.2;
+    },
+    priority: 105
+  },
+  {
+    id: "legend",
+    icon: "🏆",
+    code: "LG",
+    label: "Legend",
+    description: "Points per round ≥ 1.6 (min 20 rounds).",
+    qualifies: (s) => {
+      const rp = s.roundsPlayed || 0;
+      const tp = s.totalPoints || 0;
+      if (rp < 20) return false;
+      return (tp / rp) >= 1.6;
+    },
+    priority: 125
+  }
+];
+
 const state = {
-  screen: "splash",            // splash | setupPlayers | config | reveal | clueRound | voting | roundResult | impDeclare | packSelection | leaderboard | options | gameOver
-  playersInGame: [],           // [{ name }]
+  screen: "splash", // splash | setupPlayers | config | reveal | clueRound | voting | roundResult | impDeclare | packSelection | scoring | gameOver
+  playersInGame: [], // [{ name }]
   config: {
     totalRounds: 3,
     imposterClues: 1
   },
-  selectedPackId: null,        // id from WORD_PACKS
+  selectedPackId: null,
   game: {
     currentRound: 1,
-    subRound: 1,               // clue loops within this round
+    subRound: 1,
     imposterIndex: null,
     revealIndex: 0,
     startingPlayerIndex: null,
-    currentCard: null,         // { id, word, clues }
-    mainWord: "PINEAPPLE",     // placeholder, overwritten
-    imposterClue: "FRUIT",     // placeholder, overwritten
+    currentCard: null,
+    mainWord: "PINEAPPLE",
+    imposterClue: "FRUIT",
     clueRevealed: false,
-    playerThemesByName: {},    // { [name]: { bg, fg } } assigned at game start
-    phaseRecap: null,          // { deltasByIndex: number[], noteLines: string[] } set after voting/declaration
+    playerThemesByName: {}, // assigned at game start
     voting: {
       voterIndex: 0,
-      votes: [],               // { voterIndex, mode: 'continue' | 'accuse', targetIndex: number | null }
+      votes: [],
       pendingAccuserIndex: null,
       pendingContinueIndex: null,
-      continueSlots: null,     // boolean[] length (n-1), one true for "Really continue"
-      result: null             // { type: 'continue' | 'accuse' | 'impDeclare', ... }
+      continueSlots: null, // [{ label, isReal }]
+      result: null
     }
   },
-  // Per-game stats (reset each game)
-  session: null
+  session: null // per-game stats
 };
 
 const app = document.getElementById("app");
@@ -78,27 +281,32 @@ const app = document.getElementById("app");
 function createEl(tag, opts = {}, children = []) {
   const el = document.createElement(tag);
   if (opts.className) el.className = opts.className;
-  if (opts.text) el.textContent = opts.text;
-  if (opts.html) el.innerHTML = opts.html;
+  if (opts.text !== undefined) el.textContent = opts.text;
+  if (opts.html !== undefined) el.innerHTML = opts.html;
   if (opts.attrs) {
     for (const [k, v] of Object.entries(opts.attrs)) {
       if (v === null || v === undefined) continue;
       el.setAttribute(k, v);
     }
   }
-  if (opts.onClick) {
-    el.addEventListener("click", opts.onClick);
-  }
   if (opts.style) {
-    for (const [k, v] of Object.entries(opts.style)) {
-      el.style[k] = v;
-    }
+    for (const [k, v] of Object.entries(opts.style)) el.style[k] = v;
   }
+  if (opts.onClick) el.addEventListener("click", opts.onClick);
   children.forEach(child => {
     if (typeof child === "string") el.appendChild(document.createTextNode(child));
     else if (child) el.appendChild(child);
   });
   return el;
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 function getOrCreateStats(name) {
@@ -128,86 +336,88 @@ function createEmptySession() {
   };
 }
 
-// Tiny badge demo for now
-function getPlayerBadges(name) {
-  const stats = getOrCreateStats(name);
-  const badges = [];
-  if (stats.totalVotes >= 10 && stats.correctVotes / stats.totalVotes >= 0.7) {
-    badges.push("Imposter Sniper");
-  }
-  if (stats.imposterRounds >= 5 && stats.imposterWins / stats.imposterRounds >= 0.6) {
-    badges.push("Master Impersonator");
-  }
-  if (!badges.length) {
-    badges.push("No badges yet");
-  }
-  return badges;
+function assignPlayerThemesAtGameStart() {
+  const idxs = shuffle([...Array(PLAYER_COLOR_PAIRS.length)].map((_, i) => i));
+  const map = {};
+  state.playersInGame.forEach((p, i) => {
+    map[p.name] = PLAYER_COLOR_PAIRS[idxs[i]];
+  });
+  return map;
+}
+
+function getThemeForPlayer(name) {
+  return state.game.playerThemesByName?.[name] || { bg: "#2563eb", fg: "#ffffff" };
+}
+
+function makeNameBox(name, opts = {}) {
+  const t = getThemeForPlayer(name);
+  const label = opts.prefix ? `${opts.prefix}${name}` : name;
+  return createEl("div", {
+    className: "name-box",
+    text: label,
+    style: { backgroundColor: t.bg, color: t.fg }
+  });
 }
 
 function getSelectedPack() {
   if (!Array.isArray(WORD_PACKS) || WORD_PACKS.length === 0) return null;
-  if (!state.selectedPackId) {
-    // default to first pack
-    return WORD_PACKS[0];
-  }
+  if (!state.selectedPackId) return WORD_PACKS[0];
   return WORD_PACKS.find(p => p.id === state.selectedPackId) || WORD_PACKS[0];
 }
 
 function pickRandomCardFromSelectedPack() {
   const pack = getSelectedPack();
   if (!pack || !pack.cards || pack.cards.length === 0) {
-    return {
-      id: "fallback",
-      word: "PINEAPPLE",
-      clues: ["fruit", "tropical"]
-    };
+    return { id: "fallback", word: "PINEAPPLE", clues: ["fruit", "tropical"] };
   }
-  const cards = pack.cards;
-  const card = cards[Math.floor(Math.random() * cards.length)];
-  return card;
+  return pack.cards[Math.floor(Math.random() * pack.cards.length)];
 }
 
 function pickImposterClue(card) {
-  if (!card || !Array.isArray(card.clues) || card.clues.length === 0) {
-    return "";
-  }
-  if (state.config.imposterClues <= 0) {
-    return ""; // no clue mode
-  }
-  const idx = Math.floor(Math.random() * card.clues.length);
-  return card.clues[idx].toUpperCase();
+  if (!card || !Array.isArray(card.clues) || card.clues.length === 0) return "";
+  if (state.config.imposterClues <= 0) return "";
+  return card.clues[Math.floor(Math.random() * card.clues.length)].toUpperCase();
 }
 
-// Fisher-Yates shuffle
-function shuffleArray(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
+// ---------- Badges ----------
+
+function getPrimaryBadge(name) {
+  const s = getOrCreateStats(name);
+
+  // Gate: Noob
+  const noob = BADGES.find(b => b.id === "noob");
+  if (noob && noob.gate(s)) return noob;
+
+  // Gate: Unranked
+  const unranked = BADGES.find(b => b.id === "unranked");
+  if (unranked && unranked.gate(s)) return unranked;
+
+  // Ranked unlock
+  if ((s.gamesPlayed || 0) < 20) {
+    // If someone somehow passes rounds but not games, keep Unranked behavior.
+    return unranked;
   }
-  return a;
-}
 
-function assignPlayerThemesAtGameStart() {
-  const n = state.playersInGame.length;
-  const indices = shuffleArray([...Array(PLAYER_COLOR_PAIRS.length)].map((_, i) => i));
-  const map = {};
-  for (let i = 0; i < n; i++) {
-    const idx = indices[i];
-    map[state.playersInGame[i].name] = PLAYER_COLOR_PAIRS[idx];
+  const ranked = BADGES
+    .filter(b => typeof b.qualifies === "function")
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+  for (const b of ranked) {
+    if (b.qualifies(s)) return b;
   }
-  return map;
+
+  // Fallback ranked badge
+  return { icon: "✅", code: "OK", label: "Ranked", description: "Keep playing—your stats will unlock badges over time." };
 }
 
-function getThemeForPlayer(name) {
-  const theme = state.game.playerThemesByName?.[name];
-  if (theme) return theme;
-  return { bg: "#2563eb", fg: "#ffffff" };
-}
-
-function makePlayerDot(name) {
-  const t = getThemeForPlayer(name);
-  return createEl("span", { className: "player-dot", style: { backgroundColor: t.bg } });
+function renderBadgeChip(badge) {
+  // chip uses existing badge styling; dot kept for visual sparkle
+  return createEl("span", { className: "badge-chip" }, [
+    createEl("span", { className: "badge-dot" }),
+    createEl("span", { className: "badge-icon", text: badge.icon }),
+    createEl("span", { className: "badge-code", text: badge.code }),
+    createEl("span", { text: badge.label })
+  ]);
 }
 
 // ---------- Screen router ----------
@@ -223,222 +433,172 @@ function render() {
   else if (state.screen === "roundResult") renderRoundResult();
   else if (state.screen === "impDeclare") renderImpDeclare();
   else if (state.screen === "packSelection") renderPackSelection();
-  else if (state.screen === "leaderboard") renderLeaderboard();
-  else if (state.screen === "options") renderOptions();
+  else if (state.screen === "scoring") renderScoring();
   else if (state.screen === "gameOver") renderGameOver();
 }
 
-// ---------- Splash screen ----------
+// ---------- Splash ----------
 
 function renderSplash() {
   const container = createEl("div", { className: "stack" });
-
   const card = createEl("div", { className: "card stack" });
 
-  card.appendChild(
-    createEl("h1", {
-      className: "section-title",
-      text: "Emposs Duhr - A Word Game"
-    })
-  );
+  card.appendChild(createEl("h1", { className: "section-title", text: "Emposs Duhr - A Word Game" }));
 
   const pack = getSelectedPack();
-  card.appendChild(
-    createEl("p", {
-      className: "hint",
-      text: pack
-        ? `Current pack: ${pack.label}`
-        : "No packs found. Check cards.js."
-    })
-  );
+  card.appendChild(createEl("p", {
+    className: "hint",
+    text: pack ? `Current pack: ${pack.label}` : "No packs found. Check cards.js."
+  }));
 
-  card.appendChild(
-    createEl("button", {
-      className: "primary",
-      text: "Start Game",
-      onClick: () => {
-        state.screen = "setupPlayers";
-        render();
-      }
-    })
-  );
+  card.appendChild(createEl("button", {
+    className: "primary",
+    text: "Start Game",
+    onClick: () => { state.screen = "setupPlayers"; render(); }
+  }));
 
-  card.appendChild(
-    createEl("button", {
-      className: "secondary",
-      text: "Pack Selection",
-      onClick: () => {
-        state.screen = "packSelection";
-        render();
-      }
-    })
-  );
+  card.appendChild(createEl("button", {
+    className: "secondary",
+    text: "Pack Selection",
+    onClick: () => { state.screen = "packSelection"; render(); }
+  }));
 
-  card.appendChild(
-    createEl("button", {
-      className: "secondary",
-      text: "Leaderboard (coming soon)",
-      onClick: () => {
-        state.screen = "leaderboard";
-        render();
-      }
-    })
-  );
-
-  card.appendChild(
-    createEl("button", {
-      className: "secondary",
-      text: "Options (coming soon)",
-      onClick: () => {
-        state.screen = "options";
-        render();
-      }
-    })
-  );
+  card.appendChild(createEl("button", {
+    className: "secondary",
+    text: "Scoring",
+    onClick: () => { state.screen = "scoring"; render(); }
+  }));
 
   container.appendChild(card);
   app.appendChild(container);
 }
 
-// ---------- Pack selection screen ----------
+// ---------- Pack selection ----------
 
 function renderPackSelection() {
   const container = createEl("div", { className: "stack" });
-
   const card = createEl("div", { className: "card stack" });
-  card.appendChild(
-    createEl("h1", {
-      className: "section-title",
-      text: "Select word pack"
-    })
-  );
+
+  card.appendChild(createEl("h1", { className: "section-title", text: "Select word pack" }));
 
   if (!Array.isArray(WORD_PACKS) || WORD_PACKS.length === 0) {
-    card.appendChild(
-      createEl("p", {
-        className: "hint",
-        text: "No word packs defined. Check cards.js."
-      })
-    );
+    card.appendChild(createEl("p", { className: "hint", text: "No word packs defined. Check cards.js." }));
   } else {
     WORD_PACKS.forEach(pack => {
-      const isSelected = getSelectedPack() && getSelectedPack().id === pack.id;
+      const selected = getSelectedPack() && getSelectedPack().id === pack.id;
 
       const row = createEl("div", { className: "card stack" });
       row.appendChild(createEl("strong", { text: pack.label }));
-      if (pack.description) {
-        row.appendChild(
-          createEl("span", {
-            className: "hint",
-            text: pack.description
-          })
-        );
-      }
-      row.appendChild(
-        createEl("span", {
-          className: "hint",
-          text: `Cards: ${pack.cards ? pack.cards.length : 0}`
-        })
-      );
+      if (pack.description) row.appendChild(createEl("span", { className: "hint", text: pack.description }));
+      row.appendChild(createEl("span", { className: "hint", text: `Cards: ${pack.cards ? pack.cards.length : 0}` }));
 
-      row.appendChild(
-        createEl("button", {
-          className: isSelected ? "primary" : "secondary",
-          text: isSelected ? "Selected" : "Use this pack",
-          onClick: () => {
-            state.selectedPackId = pack.id;
-            render();
-          }
-        })
-      );
+      row.appendChild(createEl("button", {
+        className: selected ? "primary" : "secondary",
+        text: selected ? "Selected" : "Use this pack",
+        onClick: () => { state.selectedPackId = pack.id; render(); }
+      }));
 
       card.appendChild(row);
     });
   }
 
   const footer = createEl("div", { className: "footer-area" });
-  footer.appendChild(
-    createEl("button", {
-      className: "primary",
-      text: "Back to title",
-      onClick: () => {
-        state.screen = "splash";
-        render();
-      }
-    })
-  );
+  footer.appendChild(createEl("button", {
+    className: "primary",
+    text: "Back to title",
+    onClick: () => { state.screen = "splash"; render(); }
+  }));
 
   container.appendChild(card);
   container.appendChild(footer);
   app.appendChild(container);
 }
 
-// ---------- Placeholder: leaderboard & options ----------
+// ---------- Scoring reference screen ----------
 
-function renderLeaderboard() {
+function renderScoring() {
   const container = createEl("div", { className: "stack" });
   const card = createEl("div", { className: "card stack" });
 
-  card.appendChild(
-    createEl("h1", {
-      className: "section-title",
-      text: "Leaderboard"
-    })
+  card.appendChild(createEl("h1", { className: "section-title", text: "Scoring & Badges" }));
+
+  card.appendChild(createEl("p", {
+    className: "hint",
+    text:
+      "Badges are lifetime stats on this device. During voting, points are hidden. " +
+      "Points are shown only when a round ends (accuse or impostor declaration)."
+  }));
+
+  const scoringList = createEl("div", { className: "stack" });
+
+  const scoringItems = [
+    { t: "Accuse vote correct", v: "+2 to that voter" },
+    { t: "Accuse vote wrong", v: "-1 to that voter" },
+    { t: "Continue vote", v: "0" },
+    { t: "Vote result: Continue", v: "+1 to impostor (hidden until round end)" },
+    { t: "Vote result: Accuse wrong target", v: "+3 to impostor (round ends)" },
+    { t: "Vote result: Accuse correct impostor", v: "Impostor gets 0 (round ends)" },
+    { t: "Impostor declares correct", v: "+5 to impostor (round ends)" },
+    { t: "Impostor declares wrong", v: "-2 to impostor (round ends)" }
+  ];
+
+  scoringItems.forEach(it => {
+    scoringList.appendChild(
+      createEl("div", { className: "card stack" }, [
+        createEl("strong", { text: it.t }),
+        createEl("span", { className: "hint", text: it.v })
+      ])
+    );
+  });
+
+  card.appendChild(scoringList);
+
+  card.appendChild(createEl("h2", { className: "section-title", text: "Badge tiers" }));
+  card.appendChild(createEl("p", {
+    className: "hint",
+    text:
+      "🐣 NB Noob: until you’ve played 20 rounds.\n" +
+      "🎟️ UR Unranked: after 20 rounds, until you’ve played 20 games.\n" +
+      "After 20 games, ranked badges appear based on percentages/rates."
+  }));
+
+  card.appendChild(createEl("h2", { className: "section-title", text: "Badges" }));
+
+  const badgeList = createEl("div", { className: "stack" });
+
+  BADGES.forEach(b => {
+    // Show all entries, including gates, with their descriptions
+    badgeList.appendChild(
+      createEl("div", { className: "card stack" }, [
+        createEl("div", { className: "row" }, [
+          renderBadgeChip(b),
+        ]),
+        createEl("span", { className: "hint", text: b.description })
+      ])
+    );
+  });
+
+  // Add fallback ranked badge info
+  badgeList.appendChild(
+    createEl("div", { className: "card stack" }, [
+      createEl("div", { className: "row" }, [
+        renderBadgeChip({ icon: "✅", code: "OK", label: "Ranked", description: "" })
+      ]),
+      createEl("span", {
+        className: "hint",
+        text: "If you’re ranked but don’t meet any thresholds yet, you’ll show as ✅ OK Ranked."
+      })
+    ])
   );
 
-  card.appendChild(
-    createEl("p", {
-      className: "hint",
-      text: "Coming soon: family rankings based on lifetime points and badges."
-    })
-  );
+  card.appendChild(badgeList);
 
   const footer = createEl("div", { className: "footer-area" });
-  footer.appendChild(
-    createEl("button", {
-      className: "primary",
-      text: "Back to title",
-      onClick: () => {
-        state.screen = "splash";
-        render();
-      }
-    })
-  );
-
-  container.appendChild(card);
-  container.appendChild(footer);
-  app.appendChild(container);
-}
-
-function renderOptions() {
-  const container = createEl("div", { className: "stack" });
-  const card = createEl("div", { className: "card stack" });
-
-  card.appendChild(
-    createEl("h1", {
-      className: "section-title",
-      text: "Options"
-    })
-  );
-
-  card.appendChild(
-    createEl("p", {
-      className: "hint",
-      text: "Future home for house rules, difficulty, and other tweaks."
-    })
-  );
-
-  const footer = createEl("div", { className: "footer-area" });
-  footer.appendChild(
-    createEl("button", {
-      className: "primary",
-      text: "Back to title",
-      onClick: () => {
-        state.screen = "splash";
-        render();
-      }
-    })
-  );
+  footer.appendChild(createEl("button", {
+    className: "primary",
+    text: "Back to title",
+    onClick: () => { state.screen = "splash"; render(); }
+  }));
 
   container.appendChild(card);
   container.appendChild(footer);
@@ -476,12 +636,7 @@ function renderSetupPlayers() {
     titleCard.appendChild(createEl("div", { className: "spacer-sm" }));
     titleCard.appendChild(row);
   } else {
-    titleCard.appendChild(
-      createEl("p", {
-        className: "hint",
-        text: "No players saved yet. Add some names to get started."
-      })
-    );
+    titleCard.appendChild(createEl("p", { className: "hint", text: "No players saved yet. Add some names to get started." }));
   }
 
   const inputRow = createEl("div", { className: "input-row" });
@@ -508,17 +663,10 @@ function renderSetupPlayers() {
   titleCard.appendChild(inputRow);
 
   const currentCard = createEl("div", { className: "card" });
-  currentCard.appendChild(
-    createEl("h2", { className: "section-title", text: "Play order" })
-  );
+  currentCard.appendChild(createEl("h2", { className: "section-title", text: "Play order" }));
 
   if (!state.playersInGame.length) {
-    currentCard.appendChild(
-      createEl("p", {
-        className: "hint",
-        text: "Tap names above or add new players. Order matters for passing the phone."
-      })
-    );
+    currentCard.appendChild(createEl("p", { className: "hint", text: "Tap names above or add new players. Order matters for passing the phone." }));
   } else {
     const row = createEl("div", { className: "row" });
     state.playersInGame.forEach((p, idx) => {
@@ -536,48 +684,32 @@ function renderSetupPlayers() {
       row.appendChild(pill);
     });
     currentCard.appendChild(row);
-    currentCard.appendChild(
-      createEl("p", {
-        className: "hint",
-        text: "Tap ✕ to remove someone from this game (they stay saved for later)."
-      })
-    );
+    currentCard.appendChild(createEl("p", { className: "hint", text: "Tap ✕ to remove someone from this game (they stay saved for later)." }));
   }
 
   const footer = createEl("div", { className: "footer-area" });
+
   const canContinue =
     state.playersInGame.length >= MIN_PLAYERS &&
     state.playersInGame.length <= MAX_PLAYERS;
 
-  footer.appendChild(
-    createEl("button", {
-      className: "secondary",
-      text: "Back to title",
-      onClick: () => {
-        state.screen = "splash";
-        render();
-      }
-    })
-  );
+  footer.appendChild(createEl("button", {
+    className: "secondary",
+    text: "Back to title",
+    onClick: () => { state.screen = "splash"; render(); }
+  }));
 
-  footer.appendChild(
-    createEl("button", {
-      className: "primary",
-      text: "Next: Game options",
-      onClick: () => {
-        state.screen = "config";
-        render();
-      },
-      attrs: { disabled: canContinue ? null : "disabled" }
-    })
-  );
+  footer.appendChild(createEl("button", {
+    className: "primary",
+    text: "Next: Game options",
+    onClick: () => { state.screen = "config"; render(); },
+    attrs: { disabled: canContinue ? null : "disabled" }
+  }));
 
-  footer.appendChild(
-    createEl("p", {
-      className: "hint center",
-      text: `You can have ${MIN_PLAYERS}–${MAX_PLAYERS} players in a game.`
-    })
-  );
+  footer.appendChild(createEl("p", {
+    className: "hint center",
+    text: `You can have ${MIN_PLAYERS}–${MAX_PLAYERS} players in a game.`
+  }));
 
   container.appendChild(titleCard);
   container.appendChild(currentCard);
@@ -589,50 +721,31 @@ function renderSetupPlayers() {
 
 function renderConfig() {
   const container = createEl("div", { className: "stack" });
-
   const card = createEl("div", { className: "card stack" });
 
-  card.appendChild(
-    createEl("h1", { className: "section-title", text: "Game options" })
-  );
+  card.appendChild(createEl("h1", { className: "section-title", text: "Game options" }));
 
-  // number of rounds
   const roundsRow = createEl("div", { className: "stack" }, [
-    createEl("label", {
-      text: "Number of rounds",
-      className: "hint"
-    })
+    createEl("label", { text: "Number of rounds", className: "hint" })
   ]);
 
   const roundsInput = createEl("input", {
-    attrs: {
-      type: "number",
-      min: "1",
-      max: "20",
-      value: String(state.config.totalRounds)
-    }
+    attrs: { type: "number", min: "1", max: "20", value: String(state.config.totalRounds) }
   });
   roundsInput.addEventListener("input", () => {
     const n = parseInt(roundsInput.value, 10);
-    if (!isNaN(n)) {
-      state.config.totalRounds = Math.max(1, Math.min(20, n));
-    }
+    if (!isNaN(n)) state.config.totalRounds = Math.max(1, Math.min(20, n));
   });
   roundsRow.appendChild(roundsInput);
   card.appendChild(roundsRow);
 
-  // imposter clues
   const clueRow = createEl("div", { className: "stack" }, [
-    createEl("label", {
-      text: "Impostor clues",
-      className: "hint"
-    })
+    createEl("label", { text: "Impostor clues", className: "hint" })
   ]);
+
   const clueSelect = createEl("select");
   [0, 1, 2, 3].forEach(n => {
-    const opt = createEl("option", {
-      text: `${n} clue${n === 1 ? "" : "s"}`
-    });
+    const opt = createEl("option", { text: `${n} clue${n === 1 ? "" : "s"}` });
     opt.value = String(n);
     if (n === state.config.imposterClues) opt.selected = true;
     clueSelect.appendChild(opt);
@@ -643,43 +756,20 @@ function renderConfig() {
   clueRow.appendChild(clueSelect);
   card.appendChild(clueRow);
 
-  card.appendChild(
-    createEl("p", {
-      className: "hint",
-      text: "Time limits are off so conversation can flow naturally."
-    })
-  );
-
   const pack = getSelectedPack();
-  if (pack) {
-    card.appendChild(
-      createEl("p", {
-        className: "hint",
-        text: `Using word pack: ${pack.label}`
-      })
-    );
-  }
+  if (pack) card.appendChild(createEl("p", { className: "hint", text: `Using word pack: ${pack.label}` }));
 
   const footer = createEl("div", { className: "footer-area" });
-  footer.appendChild(
-    createEl("button", {
-      className: "secondary",
-      text: "Back to players",
-      onClick: () => {
-        state.screen = "setupPlayers";
-        render();
-      }
-    })
-  );
-  footer.appendChild(
-    createEl("button", {
-      className: "primary",
-      text: "Start game",
-      onClick: () => {
-        startGame();
-      }
-    })
-  );
+  footer.appendChild(createEl("button", {
+    className: "secondary",
+    text: "Back to players",
+    onClick: () => { state.screen = "setupPlayers"; render(); }
+  }));
+  footer.appendChild(createEl("button", {
+    className: "primary",
+    text: "Start game",
+    onClick: () => startGame()
+  }));
 
   container.appendChild(card);
   container.appendChild(footer);
@@ -687,33 +777,23 @@ function renderConfig() {
 }
 
 function startGame() {
-  // Reset per-game stats
   state.session = createEmptySession();
 
-  // Assign player color themes ONCE per game
+  // assign locked colors for this game
   state.game.playerThemesByName = assignPlayerThemesAtGameStart();
 
-  // Initialize first round
   state.game.currentRound = 1;
   state.game.subRound = 1;
 
   const card = pickRandomCardFromSelectedPack();
   state.game.currentCard = card;
   state.game.mainWord = card.word.toUpperCase();
+  state.game.imposterClue = pickImposterClue(card);
 
-  const clue = pickImposterClue(card);
-  state.game.imposterClue = clue;
-
-  state.game.imposterIndex = Math.floor(
-    Math.random() * state.playersInGame.length
-  );
+  state.game.imposterIndex = Math.floor(Math.random() * state.playersInGame.length);
   state.game.revealIndex = 0;
-  state.game.startingPlayerIndex = Math.floor(
-    Math.random() * state.playersInGame.length
-  );
+  state.game.startingPlayerIndex = Math.floor(Math.random() * state.playersInGame.length);
   state.game.clueRevealed = false;
-
-  state.game.phaseRecap = null;
 
   state.game.voting = {
     voterIndex: 0,
@@ -728,32 +808,24 @@ function startGame() {
   render();
 }
 
-// ---------- 3) Reveal screen (with long-press) ----------
+// ---------- 3) Reveal screen ----------
 
 function renderReveal() {
   const container = createEl("div", { className: "stack" });
 
-  const header = createEl("div", {
+  container.appendChild(createEl("div", {
     className: "round-indicator",
     text: `Round ${state.game.currentRound} of ${state.config.totalRounds}`
-  });
-  container.appendChild(header);
+  }));
 
   const currentIdx = state.game.revealIndex;
   const player = state.playersInGame[currentIdx];
+  const theme = getThemeForPlayer(player.name);
 
   const card = createEl("div", { className: "card" });
 
-  // Big name + badges
-  const badges = getPlayerBadges(player.name);
-  const badgeEls = badges.map(label =>
-    createEl("span", { className: "badge-chip" }, [
-      createEl("span", { className: "badge-dot" }),
-      createEl("span", { text: label })
-    ])
-  );
-
-  const theme = getThemeForPlayer(player.name);
+  const badge = getPrimaryBadge(player.name);
+  const badgeEls = [renderBadgeChip(badge)];
 
   const nameRow = createEl("div", {
     className: "big-name-button",
@@ -762,26 +834,20 @@ function renderReveal() {
     createEl("div", { className: "big-name-label", text: player.name }),
     createEl("div", { className: "badge-row" }, badgeEls)
   ]);
+
   card.appendChild(nameRow);
 
-  // Word / clue
   const isImposter = currentIdx === state.game.imposterIndex;
   const label = isImposter ? "Your clue" : "Secret word";
 
   let realWord;
   if (isImposter) {
-    if (state.config.imposterClues <= 0 || !state.game.imposterClue) {
-      realWord = "NO CLUE";
-    } else {
-      realWord = state.game.imposterClue.toUpperCase();
-    }
+    realWord = (state.config.imposterClues <= 0 || !state.game.imposterClue) ? "NO CLUE" : state.game.imposterClue.toUpperCase();
   } else {
     realWord = state.game.mainWord.toUpperCase();
   }
 
-  const displayText = state.game.clueRevealed
-    ? realWord
-    : "Press and hold to reveal";
+  const displayText = state.game.clueRevealed ? realWord : "Press and hold to reveal";
 
   const clueBox = createEl("div", { className: "clue-box" }, [
     createEl("div", { className: "clue-label", text: label }),
@@ -790,16 +856,15 @@ function renderReveal() {
   card.appendChild(clueBox);
 
   if (isImposter && state.game.clueRevealed) {
-    const impNote = createEl("div", { className: "imposter-tag" }, [
+    card.appendChild(createEl("div", { className: "imposter-tag" }, [
       createEl("span", { className: "imposter-icon", text: "🕵️" }),
       createEl("span", { text: " You are the Impostor" })
-    ]);
-    card.appendChild(impNote);
+    ]));
   }
 
-  // Long-press detection (mouse + touch)
+  // long-press detection
   let pressTimer = null;
-  const PRESS_DURATION = 500; // ms
+  const PRESS_DURATION = 500;
 
   function startPress() {
     if (state.game.clueRevealed) return;
@@ -808,12 +873,8 @@ function renderReveal() {
       render();
     }, PRESS_DURATION);
   }
-
   function endPress() {
-    if (pressTimer !== null) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
+    if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; }
   }
 
   clueBox.addEventListener("mousedown", startPress);
@@ -823,14 +884,12 @@ function renderReveal() {
   clueBox.addEventListener("touchend", endPress);
   clueBox.addEventListener("touchcancel", endPress);
 
-  card.appendChild(
-    createEl("p", {
-      className: "hint",
-      text: state.game.clueRevealed
-        ? "Once you’ve memorized it, tap the button below and pass the phone."
-        : "Press and hold on the word area to reveal it. Then pass the phone."
-    })
-  );
+  card.appendChild(createEl("p", {
+    className: "hint",
+    text: state.game.clueRevealed
+      ? "Once you’ve memorized it, tap the button below and pass the phone."
+      : "Press and hold on the word area to reveal it. Then pass the phone."
+  }));
 
   container.appendChild(card);
 
@@ -839,202 +898,116 @@ function renderReveal() {
   const isLast = currentIdx === state.playersInGame.length - 1;
   if (isLast) {
     const starter = state.playersInGame[state.game.startingPlayerIndex];
-    footer.appendChild(
-      createEl("button", {
-        className: "primary",
-        text: `Start round with ${starter.name}`,
-        onClick: () => {
-          state.screen = "clueRound";
-          render();
-        }
-      })
-    );
+    footer.appendChild(createEl("button", {
+      className: "primary",
+      text: `Start round with ${starter.name}`,
+      onClick: () => { state.screen = "clueRound"; render(); }
+    }));
   } else {
-    footer.appendChild(
-      createEl("button", {
-        className: "primary",
-        text: "Next player",
-        onClick: () => {
-          state.game.revealIndex += 1;
-          state.game.clueRevealed = false;
-          render();
-        }
-      })
-    );
+    footer.appendChild(createEl("button", {
+      className: "primary",
+      text: "Next player",
+      onClick: () => {
+        state.game.revealIndex += 1;
+        state.game.clueRevealed = false;
+        render();
+      }
+    }));
   }
 
-  footer.appendChild(
-    createEl("p", {
-      className: "hint center",
-      text: "Make sure only the current player can see the screen."
-    })
-  );
+  footer.appendChild(createEl("p", { className: "hint center", text: "Make sure only the current player can see the screen." }));
 
   container.appendChild(footer);
   app.appendChild(container);
 }
 
-// ---------- 4) Off-phone clue round screen ----------
+// ---------- 4) Clue round screen ----------
 
 function renderClueRound() {
   const container = createEl("div", { className: "stack" });
 
-  const header = createEl("div", {
+  container.appendChild(createEl("div", {
     className: "round-indicator",
     text: `Round ${state.game.currentRound} of ${state.config.totalRounds} — Clue loop ${state.game.subRound}`
-  });
-  container.appendChild(header);
+  }));
 
   const card = createEl("div", { className: "card stack" });
-
-  card.appendChild(
-    createEl("h1", {
-      className: "section-title",
-      text: "Clue round in progress"
-    })
-  );
+  card.appendChild(createEl("h1", { className: "section-title", text: "Clue round in progress" }));
 
   const starter = state.playersInGame[state.game.startingPlayerIndex];
-  card.appendChild(
-    createEl("div", {
-      className: "subtle-start-label",
-      text: `Start with ${starter.name}`
-    })
-  );
+  card.appendChild(createEl("div", { className: "subtle-start-label", text: `Start with ${starter.name}` }));
 
-  card.appendChild(
-    createEl("p", {
-      className: "hint",
-      text:
-        "Play is now off-phone: players give one-word clues in order and talk it over. " +
-        "When you're ready for everyone to vote (continue vs accuse), tap the button below. " +
-        "If the Impostor declares they know the word, use the Impostor button instead."
-    })
-  );
+  card.appendChild(createEl("p", {
+    className: "hint",
+    text:
+      "Play is now off-phone: players give one-word clues in order and talk it over. " +
+      "When you're ready for everyone to vote (continue vs accuse), tap below. " +
+      "If the Impostor declares they know the word, use the Impostor button instead."
+  }));
 
   const footer = createEl("div", { className: "footer-area" });
 
-  footer.appendChild(
-    createEl("button", {
-      className: "primary",
-      text: "Begin voting",
-      onClick: () => {
-        startVoting();
-      }
-    })
-  );
+  footer.appendChild(createEl("button", {
+    className: "primary",
+    text: "Begin voting",
+    onClick: () => startVoting()
+  }));
 
-  footer.appendChild(
-    createEl("button", {
-      className: "secondary",
-      text: "Impostor declares",
-      onClick: () => {
-        state.screen = "impDeclare";
-        render();
-      }
-    })
-  );
+  footer.appendChild(createEl("button", {
+    className: "secondary",
+    text: "Impostor declares",
+    onClick: () => { state.screen = "impDeclare"; render(); }
+  }));
 
-  footer.appendChild(
-    createEl("p", {
-      className: "hint center",
-      text: "Voting and declarations are secret. Pass the phone to the right person."
-    })
-  );
+  footer.appendChild(createEl("p", { className: "hint center", text: "Voting and declarations are secret. Pass the phone to the right person." }));
 
   container.appendChild(card);
   container.appendChild(footer);
   app.appendChild(container);
 }
 
-// ---------- 5) Impostor declares flow ----------
+// ---------- 5) Impostor declares ----------
 
 function renderImpDeclare() {
   const container = createEl("div", { className: "stack" });
   const imp = state.playersInGame[state.game.imposterIndex];
 
-  const header = createEl("div", {
+  container.appendChild(createEl("div", {
     className: "round-indicator",
     text: `Round ${state.game.currentRound} of ${state.config.totalRounds}`
-  });
-  container.appendChild(header);
+  }));
 
   const card = createEl("div", { className: "card stack" });
 
-  card.appendChild(
-    createEl("h1", {
-      className: "section-title",
-      text: "Impostor declaration"
-    })
-  );
+  card.appendChild(createEl("h1", { className: "section-title", text: "Impostor declaration" }));
 
-  card.appendChild(
-    createEl("p", {
-      className: "hint",
-      text:
-        `Pass the phone to the Impostor (${imp.name}). They have declared a guess for the secret word aloud.` +
-        " As a group, decide whether their spoken guess was correct."
-    })
-  );
+  card.appendChild(createEl("p", {
+    className: "hint",
+    text:
+      `Pass the phone to the Impostor (${imp.name}). They have declared a guess aloud. ` +
+      "As a group, decide whether their spoken guess was correct."
+  }));
 
-  const correctBtn = createEl("button", {
+  card.appendChild(createEl("button", {
     className: "primary",
     text: "Guess was correct",
-    onClick: () => {
-      handleImpostorDeclareOutcome(true);
-    }
-  });
+    onClick: () => handleImpostorDeclareOutcome(true)
+  }));
 
-  const wrongBtn = createEl("button", {
+  card.appendChild(createEl("button", {
     className: "secondary",
     text: "Guess was wrong",
-    onClick: () => {
-      handleImpostorDeclareOutcome(false);
-    }
-  });
-
-  card.appendChild(correctBtn);
-  card.appendChild(wrongBtn);
-
-  const footer = createEl("div", { className: "footer-area" });
-  footer.appendChild(
-    createEl("p", {
-      className: "hint center",
-      text: "Be honest! The fun depends on fair play."
-    })
-  );
+    onClick: () => handleImpostorDeclareOutcome(false)
+  }));
 
   container.appendChild(card);
-  container.appendChild(footer);
   app.appendChild(container);
 }
 
 function handleImpostorDeclareOutcome(correct) {
-  // Clear any previous recap
-  state.game.phaseRecap = null;
-
-  // Apply scoring for declaration (individual only)
-  const n = state.playersInGame.length;
-  const deltas = new Array(n).fill(0);
-  const noteLines = [];
-
-  if (correct) {
-    // Impostor nails the word: +5
-    const impIdx = state.game.imposterIndex;
-    deltas[impIdx] += 5;
-    noteLines.push("Impostor declared correctly: +5");
-  } else {
-    noteLines.push("Impostor declared incorrectly: +0");
-  }
-
-  applyPointDeltasToTotals(deltas);
-
-  // Round-end stats
-  applyRoundEndStatsForImpDeclare(correct);
+  applyScoringForImpostorDeclare(correct);
 
   state.game.voting.result = { type: "impDeclare", correct };
-  state.game.phaseRecap = { deltasByIndex: deltas, noteLines };
-
   state.screen = "roundResult";
   render();
 }
@@ -1061,163 +1034,105 @@ function renderVoting() {
 
   const container = createEl("div", { className: "stack" });
 
-  const header = createEl("div", {
+  container.appendChild(createEl("div", {
     className: "round-indicator",
     text: `Round ${state.game.currentRound} of ${state.config.totalRounds} — Vote ${currentVoterIndex + 1} of ${state.playersInGame.length}`
-  });
-  container.appendChild(header);
+  }));
 
   const card = createEl("div", { className: "card stack" });
 
+  // Stage A: choose Continue? or Accuse
   if (vState.pendingAccuserIndex === null && vState.pendingContinueIndex === null) {
-    // Step 1: current voter chooses continue vs accuse
-    card.appendChild(
-      createEl("h1", {
-        className: "section-title",
-        text: `Pass to: ${currentVoter.name}`
-      })
-    );
+    card.appendChild(createEl("h1", { className: "section-title", text: `Pass to: ${currentVoter.name}` }));
+    card.appendChild(createEl("p", { className: "hint", text: "Your vote is secret. Choose whether to continue or accuse." }));
 
-    card.appendChild(
-      createEl("p", {
-        className: "hint",
-        text: "Your vote is secret. Choose whether to continue the round or accuse someone of being the Impostor."
-      })
-    );
-
-    const continueBtn = createEl("button", {
+    card.appendChild(createEl("button", {
       className: "secondary",
       text: "Continue?",
       onClick: () => {
-        // Two-press continue confirmation with decoys
+        // Two-press continue: open decoy panel
         vState.pendingContinueIndex = currentVoterIndex;
-        vState.continueSlots = makeContinueSlots(state.playersInGame.length - 1);
+
+        const slotsCount = state.playersInGame.length - 1;
+        const realPos = Math.floor(Math.random() * slotsCount);
+        vState.continueSlots = Array.from({ length: slotsCount }, (_, i) => ({
+          label: i === realPos ? "Really Continue" : "Blank button",
+          isReal: i === realPos
+        }));
+
         render();
       }
-    });
+    }));
 
-    const accuseBtn = createEl("button", {
+    card.appendChild(createEl("button", {
       className: "primary",
       text: "Accuse a player",
       onClick: () => {
         vState.pendingAccuserIndex = currentVoterIndex;
         render();
       }
-    });
+    }));
+  }
+  // Stage B: Continue confirmation panel (decoys)
+  else if (vState.pendingContinueIndex !== null) {
+    const voter = state.playersInGame[vState.pendingContinueIndex];
 
-    card.appendChild(continueBtn);
-    card.appendChild(accuseBtn);
-  } else if (vState.pendingAccuserIndex !== null) {
-    // Step 2a: choose a target to accuse
+    card.appendChild(createEl("h1", { className: "section-title", text: `${voter.name}: confirm` }));
+    card.appendChild(createEl("p", {
+      className: "hint",
+      text: "Tap the correct confirmation button to finalize your Continue vote."
+    }));
+
+    const list = createEl("div", { className: "stack" });
+    vState.continueSlots.forEach(slot => {
+      list.appendChild(createEl("button", {
+        className: "secondary",
+        text: slot.label,
+        onClick: () => {
+          if (!slot.isReal) return; // dead decoy
+          recordVote("continue", null);
+        }
+      }));
+    });
+    card.appendChild(list);
+
+    card.appendChild(createEl("p", {
+      className: "hint",
+      text: "If you tapped a Blank button, nothing happens (by design)."
+    }));
+  }
+  // Stage C: choose accusation target
+  else {
     const accuser = state.playersInGame[vState.pendingAccuserIndex];
 
-    card.appendChild(
-      createEl("h1", {
-        className: "section-title",
-        text: `${accuser.name}: choose who to accuse`
-      })
-    );
-
-    card.appendChild(
-      createEl("p", {
-        className: "hint",
-        text: "Tap one player to accuse them of being the Impostor."
-      })
-    );
+    card.appendChild(createEl("h1", { className: "section-title", text: `${accuser.name}: choose who to accuse` }));
+    card.appendChild(createEl("p", { className: "hint", text: "Tap one player to accuse them of being the Impostor." }));
 
     const list = createEl("div", { className: "stack" });
     state.playersInGame.forEach((p, idx) => {
       if (idx === vState.pendingAccuserIndex) return; // can't accuse yourself
-
-      const btn = createEl("button", {
+      list.appendChild(createEl("button", {
         className: "secondary",
         onClick: () => recordVote("accuse", idx)
-      }, [
-        makePlayerDot(p.name),
-        createEl("span", { text: p.name })
-      ]);
-
-      list.appendChild(btn);
+      }, [makeNameBox(p.name)]));
     });
-    card.appendChild(list);
-  } else if (vState.pendingContinueIndex !== null) {
-    // Step 2b: decoy panel for continue
-    const voter = state.playersInGame[vState.pendingContinueIndex];
-
-    card.appendChild(
-      createEl("h1", {
-        className: "section-title",
-        text: `${voter.name}: confirm`
-      })
-    );
-
-    card.appendChild(
-      createEl("p", {
-        className: "hint",
-        text: "Tap the correct button to confirm continuing. (Some buttons are blank.)"
-      })
-    );
-
-    const slots = vState.continueSlots || makeContinueSlots(state.playersInGame.length - 1);
-    vState.continueSlots = slots;
-
-    const list = createEl("div", { className: "stack" });
-    slots.forEach(isReal => {
-      if (isReal) {
-        list.appendChild(
-          createEl("button", {
-            className: "secondary",
-            text: "Really continue",
-            onClick: () => recordVote("continue", null)
-          })
-        );
-      } else {
-        // dead decoy buttons
-        list.appendChild(
-          createEl("button", {
-            className: "secondary",
-            text: " ",
-            onClick: () => { /* dead */ }
-          })
-        );
-      }
-    });
-
     card.appendChild(list);
   }
 
   const footer = createEl("div", { className: "footer-area" });
-  footer.appendChild(
-    createEl("p", {
-      className: "hint center",
-      text: "Make sure only the current voter can see the screen."
-    })
-  );
+  footer.appendChild(createEl("p", { className: "hint center", text: "Make sure only the current voter can see the screen." }));
 
   container.appendChild(card);
   container.appendChild(footer);
   app.appendChild(container);
 }
 
-function makeContinueSlots(count) {
-  // count = N-1 buttons
-  const slots = new Array(count).fill(false);
-  const realIdx = Math.floor(Math.random() * count);
-  slots[realIdx] = true;
-  return slots;
-}
-
 function recordVote(mode, targetIndex) {
   const vState = state.game.voting;
   const voterIndex = vState.voterIndex;
 
-  vState.votes.push({
-    voterIndex,
-    mode,
-    targetIndex
-  });
+  vState.votes.push({ voterIndex, mode, targetIndex });
 
-  // reset pending panels (continue or accuse)
   vState.pendingAccuserIndex = null;
   vState.pendingContinueIndex = null;
   vState.continueSlots = null;
@@ -1227,7 +1142,6 @@ function recordVote(mode, targetIndex) {
     state.screen = "voting";
     render();
   } else {
-    // all votes are in; tally
     tallyVotes();
   }
 }
@@ -1236,19 +1150,13 @@ function tallyVotes() {
   const votes = state.game.voting.votes;
   const numPlayers = state.playersInGame.length;
 
-  let continueCount = 0;
-  const accuseCountsByTarget = {}; // targetIndex -> count
+  const accuseCountsByTarget = {};
   let totalAccuse = 0;
 
   votes.forEach(v => {
-    if (v.mode === "continue") {
-      continueCount++;
-    } else if (v.mode === "accuse") {
+    if (v.mode === "accuse") {
       totalAccuse++;
-      if (!accuseCountsByTarget[v.targetIndex]) {
-        accuseCountsByTarget[v.targetIndex] = 0;
-      }
-      accuseCountsByTarget[v.targetIndex]++;
+      accuseCountsByTarget[v.targetIndex] = (accuseCountsByTarget[v.targetIndex] || 0) + 1;
     }
   });
 
@@ -1274,350 +1182,247 @@ function tallyVotes() {
     });
 
     if (bestTarget === null || tie) {
-      result = {
-        type: "continue",
-        reason: "tieOnTarget"
-      };
+      result = { type: "continue", reason: "tieOnTarget" };
     } else {
-      result = {
-        type: "accuse",
-        targetIndex: bestTarget
-      };
+      result = { type: "accuse", targetIndex: bestTarget };
     }
   } else {
-    result = {
-      type: "continue",
-      reason: "noMajority"
-    };
+    result = { type: "continue", reason: "noMajority" };
   }
 
-  // Apply phase scoring (per-voting-round) + build recap
-  applyScoringForVotingPhase(result);
+  applyScoringForVotes(result);
 
   state.game.voting.result = result;
+
+  // IMPORTANT: never show points after continue
   state.screen = "roundResult";
   render();
 }
 
-// ---------- 7) Scoring & stats (NEW RULES) ----------
+// ---------- 7) Scoring & stats ----------
+// Rules implemented:
+// - Every accuse vote is scored immediately (even if the group continues):
+//   correct accuse: +2, wrong accuse: -1
+// - Continue vote: 0
+// - Vote result continue (no majority / tie): impostor +1 (hidden; no recap UI)
+// - Vote result accuse, wrong target: impostor +3, round ends
+// - Vote result accuse, correct: impostor 0, round ends
+// - Impostor declare correct: +5, round ends
+// - Impostor declare wrong: -2, round ends
+// - No group/team points
 
-function applyPointDeltasToTotals(deltasByIndex) {
-  const sess = state.session;
-
-  deltasByIndex.forEach((delta, idx) => {
-    if (!delta) return;
-    const name = state.playersInGame[idx].name;
-    const stats = getOrCreateStats(name);
-
-    stats.totalPoints += delta;
-    if (sess) sess.points[idx] += delta;
-  });
-
-  savePersistent();
-}
-
-function applyScoringForVotingPhase(result) {
+function applyScoringForVotes(result) {
   const votes = state.game.voting.votes;
   const impIdx = state.game.imposterIndex;
-  const n = state.playersInGame.length;
+  const sess = state.session;
 
-  const deltas = new Array(n).fill(0);
-  const noteLines = [];
-
-  // 1) Individual vote scoring (accuse: +2 if correct target, -1 if wrong; continue: 0)
+  // 1) Individual scoring for accusations (always, every voting loop)
   votes.forEach(v => {
-    const voterIdx = v.voterIndex;
-    const voterName = state.playersInGame[voterIdx].name;
+    if (v.mode !== "accuse") return;
+
+    const voterName = state.playersInGame[v.voterIndex].name;
     const stats = getOrCreateStats(voterName);
 
-    if (v.mode === "accuse") {
-      stats.totalVotes += 1;
-      if (state.session) state.session.totalVotes[voterIdx] += 1;
+    stats.totalVotes += 1;
+    if (sess) sess.totalVotes[v.voterIndex] += 1;
 
-      if (v.targetIndex === impIdx) {
-        // correct accuse
-        deltas[voterIdx] += 2;
-        stats.correctVotes += 1;
-        if (state.session) state.session.correctVotes[voterIdx] += 1;
-      } else {
-        // wrong accuse
-        deltas[voterIdx] -= 1;
-      }
+    const correct = v.targetIndex === impIdx;
+    if (correct) {
+      stats.correctVotes += 1;
+      if (sess) sess.correctVotes[v.voterIndex] += 1;
+
+      stats.totalPoints += 2;
+      if (sess) sess.points[v.voterIndex] += 2;
+    } else {
+      stats.totalPoints += -1;
+      if (sess) sess.points[v.voterIndex] += -1;
     }
-    // continue => 0, not counted in vote stats
   });
 
-  // 2) Impostor bonuses based on group outcome
+  // 2) Impostor gets +1 for surviving a voting loop that continues
   if (result.type === "continue") {
-    deltas[impIdx] += 1;
-    noteLines.push("Impostor survives the vote: +1");
-  } else if (result.type === "accuse") {
+    const impName = state.playersInGame[impIdx].name;
+    const impStats = getOrCreateStats(impName);
+
+    impStats.totalPoints += 1;
+    if (sess) sess.points[impIdx] += 1;
+
+    savePersistent();
+    return; // round continues; do NOT increment roundsPlayed/imposterRounds here
+  }
+
+  // 3) If accusation resolves, round ends: count rounds + impostor round
+  if (result.type === "accuse") {
+    // Everyone participated in this completed round
+    state.playersInGame.forEach((p, idx) => {
+      const stats = getOrCreateStats(p.name);
+      stats.roundsPlayed += 1;
+      if (sess) sess.rounds[idx] += 1;
+    });
+
+    // Impostor round count
+    const impName = state.playersInGame[impIdx].name;
+    const impStats = getOrCreateStats(impName);
+    impStats.imposterRounds += 1;
+    if (sess) sess.imposterRounds[impIdx] += 1;
+
     const accusedIdx = result.targetIndex;
     const accusedIsImposter = accusedIdx === impIdx;
+
+    // If group accused wrong person => impostor wins +3
     if (!accusedIsImposter) {
-      deltas[impIdx] += 3;
-      noteLines.push("Group accused wrong player: Impostor +3");
+      impStats.imposterWins += 1;
+      if (sess) sess.imposterWins[impIdx] += 1;
+
+      impStats.totalPoints += 3;
+      if (sess) sess.points[impIdx] += 3;
     }
-    // If accusedIsImposter: impostor gets 0 (no penalty, no bonus)
-  }
 
-  // Apply deltas now (points are *not shown during voting*, only on Round Result screen)
-  applyPointDeltasToTotals(deltas);
-
-  // Build recap text (points only, no running totals)
-  if (noteLines.length === 0) {
-    noteLines.push("No bonus points this vote.");
-  }
-
-  state.game.phaseRecap = { deltasByIndex: deltas, noteLines };
-
-  // Round-end stats should only be applied when the round ends
-  if (result.type === "accuse") {
-    applyRoundEndStatsForAccuse(result);
+    savePersistent();
   }
 }
 
-function applyRoundEndStatsForAccuse(result) {
+function applyScoringForImpostorDeclare(correct) {
   const impIdx = state.game.imposterIndex;
-  const accusedIdx = result.targetIndex;
-  const accusedIsImposter = accusedIdx === impIdx;
-
-  // Everyone participated in this completed round
-  state.playersInGame.forEach((p, idx) => {
-    const stats = getOrCreateStats(p.name);
-    stats.roundsPlayed += 1;
-    if (state.session) state.session.rounds[idx] += 1;
-  });
-
-  // Mark impostor round
   const impName = state.playersInGame[impIdx].name;
   const impStats = getOrCreateStats(impName);
-  impStats.imposterRounds += 1;
-  if (state.session) state.session.imposterRounds[impIdx] += 1;
+  const sess = state.session;
 
-  if (!accusedIsImposter) {
-    // Impostor wins this round
-    impStats.imposterWins += 1;
-    if (state.session) state.session.imposterWins[impIdx] += 1;
-  }
-
-  savePersistent();
-}
-
-function applyRoundEndStatsForImpDeclare(correct) {
-  const impIdx = state.game.imposterIndex;
-
-  // Everyone participated in this completed round
+  // Round ends: everyone participated
   state.playersInGame.forEach((p, idx) => {
     const stats = getOrCreateStats(p.name);
     stats.roundsPlayed += 1;
-    if (state.session) state.session.rounds[idx] += 1;
+    if (sess) sess.rounds[idx] += 1;
   });
 
   // Impostor round
-  const impName = state.playersInGame[impIdx].name;
-  const impStats = getOrCreateStats(impName);
   impStats.imposterRounds += 1;
-  if (state.session) state.session.imposterRounds[impIdx] += 1;
+  if (sess) sess.imposterRounds[impIdx] += 1;
 
   if (correct) {
+    // Impostor wins
     impStats.imposterWins += 1;
-    if (state.session) state.session.imposterWins[impIdx] += 1;
+    if (sess) sess.imposterWins[impIdx] += 1;
+
+    impStats.totalPoints += 5;
+    if (sess) sess.points[impIdx] += 5;
+  } else {
+    // Wrong guess penalty
+    impStats.totalPoints += -2;
+    if (sess) sess.points[impIdx] += -2;
   }
 
   savePersistent();
 }
 
-// ---------- 8) Round result screen (updated recap) ----------
+// ---------- 8) Round result screen ----------
 
 function renderRoundResult() {
-  const { result } = state.game.voting;
+  const result = state.game.voting.result;
   const container = createEl("div", { className: "stack" });
 
-  const header = createEl("div", {
+  container.appendChild(createEl("div", {
     className: "round-indicator",
     text: `Round ${state.game.currentRound} of ${state.config.totalRounds}`
-  });
-  container.appendChild(header);
+  }));
 
   const card = createEl("div", { className: "card stack" });
 
   if (result.type === "continue") {
-    card.appendChild(
-      createEl("h1", {
-        className: "section-title",
-        text: "The round continues"
-      })
-    );
+    card.appendChild(createEl("h1", { className: "section-title", text: "The round continues" }));
 
     let reasonText = "Not enough players voted to accuse.";
     if (result.reason === "tieOnTarget") {
-      reasonText = "There was a tie on who to accuse. The Impostor gets away (for now).";
+      reasonText = "There was a tie on who to accuse. The round continues.";
     }
-
     card.appendChild(createEl("p", { className: "hint", text: reasonText }));
-    card.appendChild(
-      createEl("p", {
-        className: "hint",
-        text: "Play another loop of one-word clues, then come back to vote again."
-      })
-    );
-  } else if (result.type === "accuse") {
+
+    card.appendChild(createEl("p", {
+      className: "hint",
+      text: "Play another loop of one-word clues, then come back to vote again."
+    }));
+
+    // IMPORTANT: no points recap here (anti-leak)
+  }
+  else if (result.type === "accuse") {
     const accused = state.playersInGame[result.targetIndex];
     const isImposter = result.targetIndex === state.game.imposterIndex;
 
-    card.appendChild(
-      createEl("h1", {
-        className: "section-title",
-        text: `The group accuses ${accused.name}!`
-      })
-    );
+    card.appendChild(createEl("h1", {
+      className: "section-title",
+      text: `The group accuses ${accused.name}!`
+    }));
 
     if (isImposter) {
-      card.appendChild(
-        createEl("p", {
-          className: "hint",
-          text: "They WERE the Impostor. Round ends here."
-        })
-      );
+      card.appendChild(createEl("p", {
+        className: "hint",
+        text: "They WERE the Impostor. Round ends here."
+      }));
     } else {
-      card.appendChild(
-        createEl("p", {
-          className: "hint",
-          text: "They were NOT the Impostor. The real Impostor escapes! Round ends here."
-        })
-      );
+      card.appendChild(createEl("p", {
+        className: "hint",
+        text: "They were NOT the Impostor. The real Impostor escapes and gains +3."
+      }));
     }
-  } else if (result.type === "impDeclare") {
+
+    // Points recap (totals only)
+    card.appendChild(renderPointsTotalsCard());
+  }
+  else if (result.type === "impDeclare") {
     const imp = state.playersInGame[state.game.imposterIndex];
-    card.appendChild(
-      createEl("h1", {
-        className: "section-title",
-        text: `Impostor ${imp.name} declares!`
-      })
-    );
+    card.appendChild(createEl("h1", { className: "section-title", text: `Impostor ${imp.name} declares!` }));
 
     if (result.correct) {
-      card.appendChild(
-        createEl("p", {
-          className: "hint",
-          text: "Their guess was correct. Round ends here."
-        })
-      );
+      card.appendChild(createEl("p", { className: "hint", text: "Correct guess. The Impostor gains +5. Round ends." }));
     } else {
-      card.appendChild(
-        createEl("p", {
-          className: "hint",
-          text: "Their guess was wrong. Round ends here."
-        })
-      );
+      card.appendChild(createEl("p", { className: "hint", text: "Wrong guess. The Impostor loses 2 points. Round ends." }));
     }
-  }
 
-  // --- Recap: point totals (deltas) only ---
-  const recap = state.game.phaseRecap;
-  if (recap && Array.isArray(recap.deltasByIndex)) {
-    card.appendChild(createEl("h2", { className: "section-title", text: "Points this vote" }));
-
-    const list = createEl("div", { className: "stack" });
-    state.playersInGame.forEach((p, idx) => {
-      const delta = recap.deltasByIndex[idx] || 0;
-      const sign = delta > 0 ? "+" : "";
-      const row = createEl("div", { className: "card stack" });
-
-      row.appendChild(createEl("strong", { text: p.name }));
-      row.appendChild(
-        createEl("span", {
-          className: "hint",
-          text: `Points: ${sign}${delta}`
-        })
-      );
-
-      list.appendChild(row);
-    });
-
-    card.appendChild(list);
-
-    // Bonus notes (still points-focused)
-    if (recap.noteLines && recap.noteLines.length) {
-      card.appendChild(
-        createEl("p", {
-          className: "hint",
-          text: recap.noteLines.join(" · ")
-        })
-      );
-    }
+    // Points recap (totals only)
+    card.appendChild(renderPointsTotalsCard());
   }
 
   const footer = createEl("div", { className: "footer-area" });
 
-  const isContinue = state.game.voting.result.type === "continue";
-
-  if (isContinue) {
-    footer.appendChild(
-      createEl("button", {
-        className: "primary",
-        text: "Next clue loop",
-        onClick: () => {
-          state.game.subRound += 1;
-          state.game.voting = {
-            voterIndex: 0,
-            votes: [],
-            pendingAccuserIndex: null,
-            pendingContinueIndex: null,
-            continueSlots: null,
-            result: null
-          };
-          state.screen = "clueRound";
-          render();
-        }
-      })
-    );
+  if (result.type === "continue") {
+    footer.appendChild(createEl("button", {
+      className: "primary",
+      text: "Next clue loop",
+      onClick: () => {
+        state.game.subRound += 1;
+        state.game.voting = { voterIndex: 0, votes: [], pendingAccuserIndex: null, pendingContinueIndex: null, continueSlots: null, result: null };
+        state.screen = "clueRound";
+        render();
+      }
+    }));
   } else {
     const lastRound = state.game.currentRound >= state.config.totalRounds;
-    footer.appendChild(
-      createEl("button", {
-        className: "primary",
-        text: lastRound ? "See final results" : "Next round",
-        onClick: () => {
-          if (!lastRound) {
-            // start next round
-            state.game.currentRound += 1;
-            state.game.subRound = 1;
 
-            const card = pickRandomCardFromSelectedPack();
-            state.game.currentCard = card;
-            state.game.mainWord = card.word.toUpperCase();
-            state.game.imposterClue = pickImposterClue(card);
+    footer.appendChild(createEl("button", {
+      className: "primary",
+      text: lastRound ? "See final results" : "Next round",
+      onClick: () => {
+        if (!lastRound) {
+          state.game.currentRound += 1;
+          state.game.subRound = 1;
 
-            state.game.imposterIndex = Math.floor(
-              Math.random() * state.playersInGame.length
-            );
-            state.game.revealIndex = 0;
-            state.game.startingPlayerIndex = Math.floor(
-              Math.random() * state.playersInGame.length
-            );
-            state.game.clueRevealed = false;
+          const card = pickRandomCardFromSelectedPack();
+          state.game.currentCard = card;
+          state.game.mainWord = card.word.toUpperCase();
+          state.game.imposterClue = pickImposterClue(card);
 
-            // Keep playerThemesByName for the whole game
-            state.game.phaseRecap = null;
-
-            state.game.voting = {
-              voterIndex: 0,
-              votes: [],
-              pendingAccuserIndex: null,
-              pendingContinueIndex: null,
-              continueSlots: null,
-              result: null
-            };
-            state.screen = "reveal";
-          } else {
-            state.screen = "gameOver";
-          }
-          render();
+          state.game.imposterIndex = Math.floor(Math.random() * state.playersInGame.length);
+          state.game.revealIndex = 0;
+          state.game.startingPlayerIndex = Math.floor(Math.random() * state.playersInGame.length);
+          state.game.clueRevealed = false;
+          state.game.voting = { voterIndex: 0, votes: [], pendingAccuserIndex: null, pendingContinueIndex: null, continueSlots: null, result: null };
+          state.screen = "reveal";
+        } else {
+          state.screen = "gameOver";
         }
-      })
-    );
+        render();
+      }
+    }));
   }
 
   container.appendChild(card);
@@ -1625,11 +1430,41 @@ function renderRoundResult() {
   app.appendChild(container);
 }
 
-// ---------- 9) Game-over screen (per-game recap + lifetime) ----------
+function renderPointsTotalsCard() {
+  const sess = state.session || createEmptySession();
+  const wrap = createEl("div", { className: "card stack" });
+
+  wrap.appendChild(createEl("strong", { text: "Points totals (this game)" }));
+  wrap.appendChild(createEl("p", {
+    className: "hint",
+    text: "Totals only (no breakdown) so the table can learn the system without leaking secret info."
+  }));
+
+  const list = createEl("div", { className: "stack" });
+
+  state.playersInGame.forEach((p, idx) => {
+    const pts = sess.points[idx] || 0;
+
+    // Show colored name box + points
+    list.appendChild(
+      createEl("div", { className: "row" }, [
+        createEl("div", { style: { width: "100%" } }, [
+          makeNameBox(p.name),
+          createEl("div", { className: "hint", text: `${pts} point${pts === 1 ? "" : "s"}` })
+        ])
+      ])
+    );
+  });
+
+  wrap.appendChild(list);
+  return wrap;
+}
+
+// ---------- 9) Game-over screen ----------
 
 function renderGameOver() {
   const container = createEl("div", { className: "stack" });
-  const sess = state.session || createEmptySession(); // fallback just in case
+  const sess = state.session || createEmptySession();
 
   // Increment gamesPlayed once per player
   state.playersInGame.forEach(p => {
@@ -1639,68 +1474,48 @@ function renderGameOver() {
   savePersistent();
 
   const card = createEl("div", { className: "card stack" });
-  card.appendChild(
-    createEl("h1", {
-      className: "section-title",
-      text: "Game complete"
-    })
-  );
-
-  card.appendChild(
-    createEl("p", {
-      className: "hint",
-      text:
-        "Below are scores for this game and lifetime totals on this device. Badges are based on lifetime stats."
-    })
-  );
+  card.appendChild(createEl("h1", { className: "section-title", text: "Game complete" }));
+  card.appendChild(createEl("p", {
+    className: "hint",
+    text: "Scores below are this game’s totals and lifetime totals on this device. Badges are lifetime."
+  }));
 
   const list = createEl("div", { className: "stack" });
   state.playersInGame.forEach((p, idx) => {
     const stats = getOrCreateStats(p.name);
     const gamePoints = sess.points[idx] || 0;
-    const gameCorrectVotes = sess.correctVotes[idx] || 0;
-    const gameTotalVotes = sess.totalVotes[idx] || 0;
-    const gameImpWins = sess.imposterWins[idx] || 0;
+
+    const badge = getPrimaryBadge(p.name);
 
     const row = createEl("div", { className: "card stack" });
 
-    row.appendChild(createEl("strong", { text: p.name }));
+    row.appendChild(createEl("div", { className: "row" }, [
+      makeNameBox(p.name),
+    ]));
 
-    row.appendChild(
-      createEl("span", {
-        className: "hint",
-        text:
-          `This game: ${gamePoints} pts` +
-          (gameTotalVotes > 0
-            ? ` · Correct accuses: ${gameCorrectVotes}/${gameTotalVotes}`
-            : "") +
-          (gameImpWins > 0 ? ` · Impostor wins: ${gameImpWins}` : "")
-      })
-    );
+    row.appendChild(createEl("div", { className: "row" }, [
+      renderBadgeChip(badge)
+    ]));
 
-    row.appendChild(
-      createEl("span", {
-        className: "hint",
-        text:
-          `Lifetime: ${stats.totalPoints} pts · Rounds: ${stats.roundsPlayed} · Games: ${stats.gamesPlayed}`
-      })
-    );
+    row.appendChild(createEl("span", { className: "hint", text: `This game: ${gamePoints} pts` }));
+    row.appendChild(createEl("span", {
+      className: "hint",
+      text:
+        `Lifetime: ${stats.totalPoints} pts · Rounds: ${stats.roundsPlayed} · Games: ${stats.gamesPlayed} · Accuse accuracy: ` +
+        `${(stats.totalVotes ? Math.round((stats.correctVotes / stats.totalVotes) * 100) : 0)}%`
+    }));
 
     list.appendChild(row);
   });
+
   card.appendChild(list);
 
   const footer = createEl("div", { className: "footer-area" });
-  footer.appendChild(
-    createEl("button", {
-      className: "primary",
-      text: "Back to title",
-      onClick: () => {
-        state.screen = "splash";
-        render();
-      }
-    })
-  );
+  footer.appendChild(createEl("button", {
+    className: "primary",
+    text: "Back to title",
+    onClick: () => { state.screen = "splash"; render(); }
+  }));
 
   container.appendChild(card);
   container.appendChild(footer);
@@ -1708,5 +1523,4 @@ function renderGameOver() {
 }
 
 // ---------- Kick things off ----------
-
 render();
