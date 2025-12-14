@@ -9,9 +9,7 @@
   --radius-lg: 20px;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
@@ -24,7 +22,7 @@ body {
 
 #app {
   width: 100%;
-  max-width: 480px;       /* looks like a phone on desktop */
+  max-width: 480px;
   min-height: 100vh;
   padding: 16px 20px 32px;
   display: flex;
@@ -32,10 +30,7 @@ body {
   gap: 16px;
 }
 
-h1, h2, h3 {
-  margin: 0;
-  font-weight: 600;
-}
+h1, h2, h3 { margin: 0; font-weight: 600; }
 
 .card {
   background: var(--card);
@@ -53,23 +48,11 @@ h1, h2, h3 {
   color: var(--text-muted);
 }
 
-.section-title {
-  font-size: 18px;
-  margin-bottom: 8px;
-}
+.section-title { font-size: 18px; margin-bottom: 8px; }
 
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+.stack { display: flex; flex-direction: column; gap: 12px; }
 
-.row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 button {
   border: none;
@@ -85,26 +68,11 @@ button {
   touch-action: manipulation;
 }
 
-button.primary {
-  background: var(--accent);
-  color: white;
-}
+button.primary { background: var(--accent); color: white; }
+button.secondary { background: #e5e7eb; color: var(--text-main); }
+button.small { padding: 8px 12px; font-size: 14px; width: auto; }
 
-button.secondary {
-  background: #e5e7eb;
-  color: var(--text-main);
-}
-
-button.small {
-  padding: 8px 12px;
-  font-size: 14px;
-  width: auto;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
+button:disabled { opacity: 0.5; cursor: default; }
 
 .player-pill {
   padding: 6px 12px;
@@ -117,20 +85,11 @@ button:disabled {
   margin: 2px;
 }
 
-.player-pill span.remove {
-  font-size: 16px;
-  cursor: pointer;
-}
+.player-pill span.remove { font-size: 16px; cursor: pointer; }
 
-.input-row {
-  display: flex;
-  gap: 8px;
-  margin-top: 4px;
-}
+.input-row { display: flex; gap: 8px; margin-top: 4px; }
 
-input[type="text"],
-input[type="number"],
-select {
+input[type="text"], input[type="number"], select {
   flex: 1;
   padding: 10px 12px;
   border-radius: 999px;
@@ -139,21 +98,14 @@ select {
   outline: none;
 }
 
-input:focus,
-select:focus {
+input:focus, select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
-.hint {
-  font-size: 13px;
-  color: var(--text-muted);
-}
+.hint { font-size: 13px; color: var(--text-muted); }
 
 .big-name-button {
-  /* NOTE: background/text color can be overridden inline per-player */
-  background: var(--accent);
-  color: white;
   border-radius: 999px;
   padding: 14px 18px;
   display: flex;
@@ -163,14 +115,11 @@ select:focus {
   margin-top: 12px;
 }
 
-.big-name-label {
-  font-size: 20px;
-  font-weight: 600;
-}
+.big-name-label { font-size: 20px; font-weight: 700; }
 
 .badge-row {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   align-items: center;
   font-size: 12px;
   flex-wrap: wrap;
@@ -183,7 +132,7 @@ select:focus {
   padding: 4px 8px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   white-space: nowrap;
 }
 
@@ -192,6 +141,29 @@ select:focus {
   height: 8px;
   border-radius: 999px;
   background: #fbbf24;
+}
+
+.badge-code {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  opacity: 0.95;
+}
+
+.badge-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Colored player name “box” for buttons */
+.name-box {
+  border-radius: 999px;
+  padding: 10px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-weight: 800;
+  width: 100%;
 }
 
 .clue-box {
@@ -210,10 +182,7 @@ select:focus {
   margin-bottom: 4px;
 }
 
-.clue-word {
-  font-size: 22px;
-  font-weight: 600;
-}
+.clue-word { font-size: 22px; font-weight: 600; }
 
 .footer-area {
   margin-top: auto;
@@ -222,46 +191,28 @@ select:focus {
   gap: 10px;
 }
 
-.center {
-  text-align: center;
-}
-
-.spacer-sm {
-  height: 8px;
-}
+.center { text-align: center; }
+.spacer-sm { height: 8px; }
 
 .imposter-tag {
   margin-top: 0.25rem;
   font-size: 0.85rem;
   text-align: center;
-  color: #b3261e;       /* a muted red, not neon */
-  font-weight: 600;
-  opacity: 0.9;
+  color: #b3261e;
+  font-weight: 700;
+  opacity: 0.95;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 0.25rem;
 }
 
-.imposter-icon {
-  font-size: 0.9rem;
-}
+.imposter-icon { font-size: 0.9rem; }
 
-/* --- NEW: small color dot for player buttons in voting --- */
-.player-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  display: inline-block;
-  margin-right: 10px;
-  flex: 0 0 auto;
-}
-
-/* Optional: small, subtle label used in clue round */
 .subtle-start-label {
   font-size: 13px;
   color: var(--text-muted);
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
