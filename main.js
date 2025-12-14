@@ -21,6 +21,23 @@ function savePersistent() {
 
 const persistent = loadPersistent();
 
+const MAX_PLAYERS = 10;
+const MIN_PLAYERS = 3;
+
+// Locked color pairs (BG + Text) — 10 total, unique per game.
+const PLAYER_COLOR_PAIRS = [
+  { bg: "#2563EB", fg: "#FFFFFF" }, // Royal Blue
+  { bg: "#15803D", fg: "#FFFFFF" }, // Forest Green
+  { bg: "#6D28D9", fg: "#FFFFFF" }, // Deep Purple
+  { bg: "#B91C1C", fg: "#FFFFFF" }, // Crimson Red
+  { bg: "#334155", fg: "#FFFFFF" }, // Slate Gray
+  { bg: "#D97706", fg: "#111827" }, // Warm Amber
+  { bg: "#0F766E", fg: "#FFFFFF" }, // Teal
+  { bg: "#BE185D", fg: "#FFFFFF" }, // Rose
+  { bg: "#0284C7", fg: "#FFFFFF" }, // Sky Blue
+  { bg: "#4D7C0F", fg: "#FFFFFF" }  // Dark Lime
+];
+
 const state = {
   screen: "splash",            // splash | setupPlayers | config | reveal | clueRound | voting | roundResult | impDeclare | packSelection | leaderboard | options | gameOver
   playersInGame: [],           // [{ name }]
@@ -39,10 +56,14 @@ const state = {
     mainWord: "PINEAPPLE",     // placeholder, overwritten
     imposterClue: "FRUIT",     // placeholder, overwritten
     clueRevealed: false,
+    playerThemesByName: {},    // { [name]: { bg, fg } } assigned at game start
+    phaseRecap: null,          // { deltasByIndex: number[], noteLines: string[] } set after voting/declaration
     voting: {
       voterIndex: 0,
       votes: [],               // { voterIndex, mode: 'continue' | 'accuse', targetIndex: number | null }
       pendingAccuserIndex: null,
+      pendingContinueIndex: null,
+      continueSlots: null,     // boolean[] length (n-1), one true for "Really continue"
       result: null             // { type: 'continue' | 'accuse' | 'impDeclare', ... }
     }
   },
@@ -67,6 +88,11 @@ function createEl(tag, opts = {}, children = []) {
   }
   if (opts.onClick) {
     el.addEventListener("click", opts.onClick);
+  }
+  if (opts.style) {
+    for (const [k, v] of Object.entries(opts.style)) {
+      el.style[k] = v;
+    }
   }
   children.forEach(child => {
     if (typeof child === "string") el.appendChild(document.createTextNode(child));
@@ -150,6 +176,38 @@ function pickImposterClue(card) {
   }
   const idx = Math.floor(Math.random() * card.clues.length);
   return card.clues[idx].toUpperCase();
+}
+
+// Fisher-Yates shuffle
+function shuffleArray(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function assignPlayerThemesAtGameStart() {
+  const n = state.playersInGame.length;
+  const indices = shuffleArray([...Array(PLAYER_COLOR_PAIRS.length)].map((_, i) => i));
+  const map = {};
+  for (let i = 0; i < n; i++) {
+    const idx = indices[i];
+    map[state.playersInGame[i].name] = PLAYER_COLOR_PAIRS[idx];
+  }
+  return map;
+}
+
+function getThemeForPlayer(name) {
+  const theme = state.game.playerThemesByName?.[name];
+  if (theme) return theme;
+  return { bg: "#2563eb", fg: "#ffffff" };
+}
+
+function makePlayerDot(name) {
+  const t = getThemeForPlayer(name);
+  return createEl("span", { className: "player-dot", style: { backgroundColor: t.bg } });
 }
 
 // ---------- Screen router ----------
@@ -267,9 +325,7 @@ function renderPackSelection() {
       const isSelected = getSelectedPack() && getSelectedPack().id === pack.id;
 
       const row = createEl("div", { className: "card stack" });
-      row.appendChild(
-        createEl("strong", { text: pack.label })
-      );
+      row.appendChild(createEl("strong", { text: pack.label }));
       if (pack.description) {
         row.appendChild(
           createEl("span", {
@@ -398,7 +454,7 @@ function renderSetupPlayers() {
     createEl("h1", { className: "section-title", text: "Who is playing?" }),
     createEl("p", {
       className: "hint",
-      text: "Tap existing names to add them in order, or add new players below."
+      text: `Tap existing names to add them in order, or add new players below. (Max ${MAX_PLAYERS})`
     })
   ]);
 
@@ -410,6 +466,7 @@ function renderSetupPlayers() {
         className: "secondary small",
         text: name,
         onClick: () => {
+          if (state.playersInGame.length >= MAX_PLAYERS) return;
           state.playersInGame.push({ name });
           render();
         }
@@ -435,6 +492,7 @@ function renderSetupPlayers() {
     className: "primary small",
     text: "Add",
     onClick: () => {
+      if (state.playersInGame.length >= MAX_PLAYERS) return;
       const name = nameInput.value.trim();
       if (!name) return;
       getOrCreateStats(name);
@@ -487,10 +545,9 @@ function renderSetupPlayers() {
   }
 
   const footer = createEl("div", { className: "footer-area" });
-  const minPlayers = 3;
   const canContinue =
-    state.playersInGame.length >= minPlayers &&
-    state.playersInGame.length <= 12;
+    state.playersInGame.length >= MIN_PLAYERS &&
+    state.playersInGame.length <= MAX_PLAYERS;
 
   footer.appendChild(
     createEl("button", {
@@ -514,10 +571,11 @@ function renderSetupPlayers() {
       attrs: { disabled: canContinue ? null : "disabled" }
     })
   );
+
   footer.appendChild(
     createEl("p", {
       className: "hint center",
-      text: "You can have 3–12 players in a game."
+      text: `You can have ${MIN_PLAYERS}–${MAX_PLAYERS} players in a game.`
     })
   );
 
@@ -563,7 +621,7 @@ function renderConfig() {
   roundsRow.appendChild(roundsInput);
   card.appendChild(roundsRow);
 
-  // imposter clues (just a count selector for now)
+  // imposter clues
   const clueRow = createEl("div", { className: "stack" }, [
     createEl("label", {
       text: "Impostor clues",
@@ -632,6 +690,9 @@ function startGame() {
   // Reset per-game stats
   state.session = createEmptySession();
 
+  // Assign player color themes ONCE per game
+  state.game.playerThemesByName = assignPlayerThemesAtGameStart();
+
   // Initialize first round
   state.game.currentRound = 1;
   state.game.subRound = 1;
@@ -651,10 +712,15 @@ function startGame() {
     Math.random() * state.playersInGame.length
   );
   state.game.clueRevealed = false;
+
+  state.game.phaseRecap = null;
+
   state.game.voting = {
     voterIndex: 0,
     votes: [],
     pendingAccuserIndex: null,
+    pendingContinueIndex: null,
+    continueSlots: null,
     result: null
   };
 
@@ -687,7 +753,12 @@ function renderReveal() {
     ])
   );
 
-  const nameRow = createEl("div", { className: "big-name-button" }, [
+  const theme = getThemeForPlayer(player.name);
+
+  const nameRow = createEl("div", {
+    className: "big-name-button",
+    style: { backgroundColor: theme.bg, color: theme.fg }
+  }, [
     createEl("div", { className: "big-name-label", text: player.name }),
     createEl("div", { className: "badge-row" }, badgeEls)
   ]);
@@ -719,16 +790,11 @@ function renderReveal() {
   card.appendChild(clueBox);
 
   if (isImposter && state.game.clueRevealed) {
-  const impNote = createEl("div", { className: "imposter-tag" }, [
-    createEl("span", {
-      className: "imposter-icon",
-      text: "🕵️"
-    }),
-    createEl("span", {
-      text: " You are the Impostor"
-    })
-  ]);
-  card.appendChild(impNote);
+    const impNote = createEl("div", { className: "imposter-tag" }, [
+      createEl("span", { className: "imposter-icon", text: "🕵️" }),
+      createEl("span", { text: " You are the Impostor" })
+    ]);
+    card.appendChild(impNote);
   }
 
   // Long-press detection (mouse + touch)
@@ -828,14 +894,13 @@ function renderClueRound() {
     })
   );
 
-  // Show which player starts this clue round
-const starter = state.playersInGame[state.game.startingPlayerIndex];
-card.appendChild(
-  createEl("div", {
-    className: "subtle-start-label",
-    text: `Start with ${starter.name}`
-  })
-);
+  const starter = state.playersInGame[state.game.startingPlayerIndex];
+  card.appendChild(
+    createEl("div", {
+      className: "subtle-start-label",
+      text: `Start with ${starter.name}`
+    })
+  );
 
   card.appendChild(
     createEl("p", {
@@ -945,11 +1010,31 @@ function renderImpDeclare() {
 }
 
 function handleImpostorDeclareOutcome(correct) {
-  applyScoringForImpostorDeclare(correct);
-  state.game.voting.result = {
-    type: "impDeclare",
-    correct
-  };
+  // Clear any previous recap
+  state.game.phaseRecap = null;
+
+  // Apply scoring for declaration (individual only)
+  const n = state.playersInGame.length;
+  const deltas = new Array(n).fill(0);
+  const noteLines = [];
+
+  if (correct) {
+    // Impostor nails the word: +5
+    const impIdx = state.game.imposterIndex;
+    deltas[impIdx] += 5;
+    noteLines.push("Impostor declared correctly: +5");
+  } else {
+    noteLines.push("Impostor declared incorrectly: +0");
+  }
+
+  applyPointDeltasToTotals(deltas);
+
+  // Round-end stats
+  applyRoundEndStatsForImpDeclare(correct);
+
+  state.game.voting.result = { type: "impDeclare", correct };
+  state.game.phaseRecap = { deltasByIndex: deltas, noteLines };
+
   state.screen = "roundResult";
   render();
 }
@@ -961,6 +1046,8 @@ function startVoting() {
     voterIndex: 0,
     votes: [],
     pendingAccuserIndex: null,
+    pendingContinueIndex: null,
+    continueSlots: null,
     result: null
   };
   state.screen = "voting";
@@ -982,7 +1069,7 @@ function renderVoting() {
 
   const card = createEl("div", { className: "card stack" });
 
-  if (vState.pendingAccuserIndex === null) {
+  if (vState.pendingAccuserIndex === null && vState.pendingContinueIndex === null) {
     // Step 1: current voter chooses continue vs accuse
     card.appendChild(
       createEl("h1", {
@@ -1000,9 +1087,12 @@ function renderVoting() {
 
     const continueBtn = createEl("button", {
       className: "secondary",
-      text: "Continue the round",
+      text: "Continue?",
       onClick: () => {
-        recordVote("continue", null);
+        // Two-press continue confirmation with decoys
+        vState.pendingContinueIndex = currentVoterIndex;
+        vState.continueSlots = makeContinueSlots(state.playersInGame.length - 1);
+        render();
       }
     });
 
@@ -1010,15 +1100,15 @@ function renderVoting() {
       className: "primary",
       text: "Accuse a player",
       onClick: () => {
-        state.game.voting.pendingAccuserIndex = currentVoterIndex;
+        vState.pendingAccuserIndex = currentVoterIndex;
         render();
       }
     });
 
     card.appendChild(continueBtn);
     card.appendChild(accuseBtn);
-  } else {
-    // Step 2: choose a target to accuse
+  } else if (vState.pendingAccuserIndex !== null) {
+    // Step 2a: choose a target to accuse
     const accuser = state.playersInGame[vState.pendingAccuserIndex];
 
     card.appendChild(
@@ -1038,15 +1128,61 @@ function renderVoting() {
     const list = createEl("div", { className: "stack" });
     state.playersInGame.forEach((p, idx) => {
       if (idx === vState.pendingAccuserIndex) return; // can't accuse yourself
+
       const btn = createEl("button", {
         className: "secondary",
-        text: p.name,
-        onClick: () => {
-          recordVote("accuse", idx);
-        }
-      });
+        onClick: () => recordVote("accuse", idx)
+      }, [
+        makePlayerDot(p.name),
+        createEl("span", { text: p.name })
+      ]);
+
       list.appendChild(btn);
     });
+    card.appendChild(list);
+  } else if (vState.pendingContinueIndex !== null) {
+    // Step 2b: decoy panel for continue
+    const voter = state.playersInGame[vState.pendingContinueIndex];
+
+    card.appendChild(
+      createEl("h1", {
+        className: "section-title",
+        text: `${voter.name}: confirm`
+      })
+    );
+
+    card.appendChild(
+      createEl("p", {
+        className: "hint",
+        text: "Tap the correct button to confirm continuing. (Some buttons are blank.)"
+      })
+    );
+
+    const slots = vState.continueSlots || makeContinueSlots(state.playersInGame.length - 1);
+    vState.continueSlots = slots;
+
+    const list = createEl("div", { className: "stack" });
+    slots.forEach(isReal => {
+      if (isReal) {
+        list.appendChild(
+          createEl("button", {
+            className: "secondary",
+            text: "Really continue",
+            onClick: () => recordVote("continue", null)
+          })
+        );
+      } else {
+        // dead decoy buttons
+        list.appendChild(
+          createEl("button", {
+            className: "secondary",
+            text: " ",
+            onClick: () => { /* dead */ }
+          })
+        );
+      }
+    });
+
     card.appendChild(list);
   }
 
@@ -1063,6 +1199,14 @@ function renderVoting() {
   app.appendChild(container);
 }
 
+function makeContinueSlots(count) {
+  // count = N-1 buttons
+  const slots = new Array(count).fill(false);
+  const realIdx = Math.floor(Math.random() * count);
+  slots[realIdx] = true;
+  return slots;
+}
+
 function recordVote(mode, targetIndex) {
   const vState = state.game.voting;
   const voterIndex = vState.voterIndex;
@@ -1073,8 +1217,10 @@ function recordVote(mode, targetIndex) {
     targetIndex
   });
 
-  // reset pending accuser if we were in that step
+  // reset pending panels (continue or accuse)
   vState.pendingAccuserIndex = null;
+  vState.pendingContinueIndex = null;
+  vState.continueSlots = null;
 
   if (voterIndex + 1 < state.playersInGame.length) {
     vState.voterIndex += 1;
@@ -1145,26 +1291,94 @@ function tallyVotes() {
     };
   }
 
-  // Apply scoring / stats for this voting outcome
-  applyScoringForVotes(result);
+  // Apply phase scoring (per-voting-round) + build recap
+  applyScoringForVotingPhase(result);
 
   state.game.voting.result = result;
   state.screen = "roundResult";
   render();
 }
 
-// ---------- 7) Scoring & stats ----------
+// ---------- 7) Scoring & stats (NEW RULES) ----------
 
-function applyScoringForVotes(result) {
-  const votes = state.game.voting.votes;
-  const impIdx = state.game.imposterIndex;
+function applyPointDeltasToTotals(deltasByIndex) {
   const sess = state.session;
 
-  if (result.type !== "accuse") {
-    // round didn't end yet; no scoring, no round counts
-    return;
+  deltasByIndex.forEach((delta, idx) => {
+    if (!delta) return;
+    const name = state.playersInGame[idx].name;
+    const stats = getOrCreateStats(name);
+
+    stats.totalPoints += delta;
+    if (sess) sess.points[idx] += delta;
+  });
+
+  savePersistent();
+}
+
+function applyScoringForVotingPhase(result) {
+  const votes = state.game.voting.votes;
+  const impIdx = state.game.imposterIndex;
+  const n = state.playersInGame.length;
+
+  const deltas = new Array(n).fill(0);
+  const noteLines = [];
+
+  // 1) Individual vote scoring (accuse: +2 if correct target, -1 if wrong; continue: 0)
+  votes.forEach(v => {
+    const voterIdx = v.voterIndex;
+    const voterName = state.playersInGame[voterIdx].name;
+    const stats = getOrCreateStats(voterName);
+
+    if (v.mode === "accuse") {
+      stats.totalVotes += 1;
+      if (state.session) state.session.totalVotes[voterIdx] += 1;
+
+      if (v.targetIndex === impIdx) {
+        // correct accuse
+        deltas[voterIdx] += 2;
+        stats.correctVotes += 1;
+        if (state.session) state.session.correctVotes[voterIdx] += 1;
+      } else {
+        // wrong accuse
+        deltas[voterIdx] -= 1;
+      }
+    }
+    // continue => 0, not counted in vote stats
+  });
+
+  // 2) Impostor bonuses based on group outcome
+  if (result.type === "continue") {
+    deltas[impIdx] += 1;
+    noteLines.push("Impostor survives the vote: +1");
+  } else if (result.type === "accuse") {
+    const accusedIdx = result.targetIndex;
+    const accusedIsImposter = accusedIdx === impIdx;
+    if (!accusedIsImposter) {
+      deltas[impIdx] += 3;
+      noteLines.push("Group accused wrong player: Impostor +3");
+    }
+    // If accusedIsImposter: impostor gets 0 (no penalty, no bonus)
   }
 
+  // Apply deltas now (points are *not shown during voting*, only on Round Result screen)
+  applyPointDeltasToTotals(deltas);
+
+  // Build recap text (points only, no running totals)
+  if (noteLines.length === 0) {
+    noteLines.push("No bonus points this vote.");
+  }
+
+  state.game.phaseRecap = { deltasByIndex: deltas, noteLines };
+
+  // Round-end stats should only be applied when the round ends
+  if (result.type === "accuse") {
+    applyRoundEndStatsForAccuse(result);
+  }
+}
+
+function applyRoundEndStatsForAccuse(result) {
+  const impIdx = state.game.imposterIndex;
   const accusedIdx = result.targetIndex;
   const accusedIsImposter = accusedIdx === impIdx;
 
@@ -1172,87 +1386,49 @@ function applyScoringForVotes(result) {
   state.playersInGame.forEach((p, idx) => {
     const stats = getOrCreateStats(p.name);
     stats.roundsPlayed += 1;
-    if (sess) sess.rounds[idx] += 1;
+    if (state.session) state.session.rounds[idx] += 1;
   });
 
   // Mark impostor round
   const impName = state.playersInGame[impIdx].name;
   const impStats = getOrCreateStats(impName);
   impStats.imposterRounds += 1;
-  if (sess) sess.imposterRounds[impIdx] += 1;
+  if (state.session) state.session.imposterRounds[impIdx] += 1;
 
   if (!accusedIsImposter) {
-    // Group accused wrong person -> Impostor wins this round
+    // Impostor wins this round
     impStats.imposterWins += 1;
-    if (sess) sess.imposterWins[impIdx] += 1;
-
-    impStats.totalPoints += 3; // placeholder reward
-    if (sess) sess.points[impIdx] += 3;
+    if (state.session) state.session.imposterWins[impIdx] += 1;
   }
-
-  // Process votes for accuracy + points
-  votes.forEach(v => {
-    if (v.mode !== "accuse") return;
-
-    const voterName = state.playersInGame[v.voterIndex].name;
-    const s = getOrCreateStats(voterName);
-    const idx = v.voterIndex;
-
-    s.totalVotes += 1;
-    if (sess) sess.totalVotes[idx] += 1;
-
-    if (accusedIsImposter && v.targetIndex === impIdx) {
-      s.correctVotes += 1;
-      if (sess) sess.correctVotes[idx] += 1;
-
-      s.totalPoints += 3; // placeholder reward for correct accuse
-      if (sess) sess.points[idx] += 3;
-    }
-  });
 
   savePersistent();
 }
 
-function applyScoringForImpostorDeclare(correct) {
+function applyRoundEndStatsForImpDeclare(correct) {
   const impIdx = state.game.imposterIndex;
-  const impName = state.playersInGame[impIdx].name;
-  const impStats = getOrCreateStats(impName);
-  const sess = state.session;
 
   // Everyone participated in this completed round
   state.playersInGame.forEach((p, idx) => {
     const stats = getOrCreateStats(p.name);
     stats.roundsPlayed += 1;
-    if (sess) sess.rounds[idx] += 1;
+    if (state.session) state.session.rounds[idx] += 1;
   });
 
   // Impostor round
+  const impName = state.playersInGame[impIdx].name;
+  const impStats = getOrCreateStats(impName);
   impStats.imposterRounds += 1;
-  if (sess) sess.imposterRounds[impIdx] += 1;
+  if (state.session) state.session.imposterRounds[impIdx] += 1;
 
   if (correct) {
-    // Impostor nails the word
     impStats.imposterWins += 1;
-    if (sess) sess.imposterWins[impIdx] += 1;
-
-    const points = 5; // strong reward
-    impStats.totalPoints += points;
-    if (sess) sess.points[impIdx] += points;
-  } else {
-    // Impostor guessed wrong: team bonus, no votes
-    const teamBonus = 2;
-    state.playersInGame.forEach((p, idx) => {
-      if (idx === impIdx) return;
-      const s = getOrCreateStats(p.name);
-      s.totalPoints += teamBonus;
-      if (sess) sess.points[idx] += teamBonus;
-    });
+    if (state.session) state.session.imposterWins[impIdx] += 1;
   }
 
   savePersistent();
 }
 
-// ---------- 8) Round result screen ----------
+// ---------- 8) Round result screen (updated recap) ----------
 
 function renderRoundResult() {
   const { result } = state.game.voting;
@@ -1279,13 +1455,7 @@ function renderRoundResult() {
       reasonText = "There was a tie on who to accuse. The Impostor gets away (for now).";
     }
 
-    card.appendChild(
-      createEl("p", {
-        className: "hint",
-        text: reasonText
-      })
-    );
-
+    card.appendChild(createEl("p", { className: "hint", text: reasonText }));
     card.appendChild(
       createEl("p", {
         className: "hint",
@@ -1307,14 +1477,14 @@ function renderRoundResult() {
       card.appendChild(
         createEl("p", {
           className: "hint",
-          text: "They WERE the Impostor. Round ends here. Points have been awarded to players who voted correctly."
+          text: "They WERE the Impostor. Round ends here."
         })
       );
     } else {
       card.appendChild(
         createEl("p", {
           className: "hint",
-          text: "They were NOT the Impostor. The real Impostor escapes! They gain points this round."
+          text: "They were NOT the Impostor. The real Impostor escapes! Round ends here."
         })
       );
     }
@@ -1331,14 +1501,49 @@ function renderRoundResult() {
       card.appendChild(
         createEl("p", {
           className: "hint",
-          text: "Their guess was correct. The Impostor wins this round and earns bonus points."
+          text: "Their guess was correct. Round ends here."
         })
       );
     } else {
       card.appendChild(
         createEl("p", {
           className: "hint",
-          text: "Their guess was wrong. The rest of the table earns a team bonus. Round ends here."
+          text: "Their guess was wrong. Round ends here."
+        })
+      );
+    }
+  }
+
+  // --- Recap: point totals (deltas) only ---
+  const recap = state.game.phaseRecap;
+  if (recap && Array.isArray(recap.deltasByIndex)) {
+    card.appendChild(createEl("h2", { className: "section-title", text: "Points this vote" }));
+
+    const list = createEl("div", { className: "stack" });
+    state.playersInGame.forEach((p, idx) => {
+      const delta = recap.deltasByIndex[idx] || 0;
+      const sign = delta > 0 ? "+" : "";
+      const row = createEl("div", { className: "card stack" });
+
+      row.appendChild(createEl("strong", { text: p.name }));
+      row.appendChild(
+        createEl("span", {
+          className: "hint",
+          text: `Points: ${sign}${delta}`
+        })
+      );
+
+      list.appendChild(row);
+    });
+
+    card.appendChild(list);
+
+    // Bonus notes (still points-focused)
+    if (recap.noteLines && recap.noteLines.length) {
+      card.appendChild(
+        createEl("p", {
+          className: "hint",
+          text: recap.noteLines.join(" · ")
         })
       );
     }
@@ -1359,6 +1564,8 @@ function renderRoundResult() {
             voterIndex: 0,
             votes: [],
             pendingAccuserIndex: null,
+            pendingContinueIndex: null,
+            continueSlots: null,
             result: null
           };
           state.screen = "clueRound";
@@ -1391,10 +1598,16 @@ function renderRoundResult() {
               Math.random() * state.playersInGame.length
             );
             state.game.clueRevealed = false;
+
+            // Keep playerThemesByName for the whole game
+            state.game.phaseRecap = null;
+
             state.game.voting = {
               voterIndex: 0,
               votes: [],
               pendingAccuserIndex: null,
+              pendingContinueIndex: null,
+              continueSlots: null,
               result: null
             };
             state.screen = "reveal";
@@ -1459,7 +1672,7 @@ function renderGameOver() {
         text:
           `This game: ${gamePoints} pts` +
           (gameTotalVotes > 0
-            ? ` · Correct votes: ${gameCorrectVotes}/${gameTotalVotes}`
+            ? ` · Correct accuses: ${gameCorrectVotes}/${gameTotalVotes}`
             : "") +
           (gameImpWins > 0 ? ` · Impostor wins: ${gameImpWins}` : "")
       })
@@ -1497,4 +1710,3 @@ function renderGameOver() {
 // ---------- Kick things off ----------
 
 render();
-
