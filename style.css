@@ -151,6 +151,7 @@ select:focus {
 }
 
 .big-name-button {
+  /* NOTE: background/text color can be overridden inline per-player */
   background: var(--accent);
   color: white;
   border-radius: 999px;
@@ -228,6 +229,7 @@ select:focus {
 .spacer-sm {
   height: 8px;
 }
+
 .imposter-tag {
   margin-top: 0.25rem;
   font-size: 0.85rem;
@@ -243,4 +245,23 @@ select:focus {
 
 .imposter-icon {
   font-size: 0.9rem;
+}
+
+/* --- NEW: small color dot for player buttons in voting --- */
+.player-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-right: 10px;
+  flex: 0 0 auto;
+}
+
+/* Optional: small, subtle label used in clue round */
+.subtle-start-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
