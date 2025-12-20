@@ -1,6 +1,6 @@
 // ---------- Persistent data & basic state ----------
 
-const GAME_VERSION = "1.4.1"; // <-- manually update this
+const GAME_VERSION = "1.4.2"; // <-- manually update this
 
 const STORAGE_KEY = "imposter_word_game_v1";
 
@@ -219,7 +219,7 @@ const BADGES = [
     id: "carry",
     icon: "🏋️",
     code: "CR",
-    label: "Carry",
+    label: "Beast",// Was 'carry'
     description: "Points per round ≥ 1.2 (min 20 rounds).",
     qualifies: (s) => {
       const rp = s.roundsPlayed || 0;
@@ -445,7 +445,7 @@ function renderSplash() {
   const container = createEl("div", { className: "stack" });
   const card = createEl("div", { className: "card stack" });
 
-  card.appendChild(createEl("h1", { className: "section-title", text: `Emposs Duhr - V ${GAME_VERSION}` }));
+  card.appendChild(createEl("h1", { className: "section-title", text: `Emposs Duhr - Version ${GAME_VERSION}` }));
 
   const pack = getSelectedPack();
   card.appendChild(createEl("p", {
@@ -740,21 +740,22 @@ function renderConfig() {
   });
   roundsRow.appendChild(roundsInput);
   card.appendChild(roundsRow);
-
+  state.config.imposterClues = state.config.imposterClues > 0 ? 1 : 0; // Hopefully to control previous config states.
   const clueRow = createEl("div", { className: "stack" }, [
     createEl("label", { text: "Impostor clues", className: "hint" })
   ]);
 
-  const clueSelect = createEl("select");
-  [0, 1, 2, 3].forEach(n => {
-    const opt = createEl("option", { text: `${n} clue${n === 1 ? "" : "s"}` });
-    opt.value = String(n);
-    if (n === state.config.imposterClues) opt.selected = true;
-    clueSelect.appendChild(opt);
-  });
-  clueSelect.addEventListener("change", () => {
-    state.config.imposterClues = parseInt(clueSelect.value, 10);
-  });
+const clueSelect = createEl("select");
+[0, 1].forEach(n => {
+  const opt = createEl("option", { text: n === 0 ? "No clue" : "1 clue" });
+  opt.value = String(n);
+  if (n === state.config.imposterClues) opt.selected = true;
+  clueSelect.appendChild(opt);
+});
+clueSelect.addEventListener("change", () => {
+  state.config.imposterClues = parseInt(clueSelect.value, 10);
+});
+
   clueRow.appendChild(clueSelect);
   card.appendChild(clueRow);
 
@@ -942,7 +943,7 @@ function renderClueRound() {
   card.appendChild(createEl("p", {
     className: "hint",
     text:
-      "Play is now off-phone: players give one-word clues in order and talk it over. " +
+      "Play is now off-phone. Players give one-word clues in order.. " +
       "When you're ready for everyone to vote (continue vs accuse), tap below. " +
       "If the Impostor declares they know the word, use the Impostor button instead."
   }));
@@ -1437,10 +1438,6 @@ function renderPointsTotalsCard() {
   const wrap = createEl("div", { className: "card stack" });
 
   wrap.appendChild(createEl("strong", { text: "Points totals (this game)" }));
-  wrap.appendChild(createEl("p", {
-    className: "hint",
-    text: "Totals only (no breakdown) so the table can learn the system without leaking secret info."
-  }));
 
   const list = createEl("div", { className: "stack" });
 
@@ -1479,7 +1476,7 @@ function renderGameOver() {
   card.appendChild(createEl("h1", { className: "section-title", text: "Game complete" }));
   card.appendChild(createEl("p", {
     className: "hint",
-    text: "Scores below are this game’s totals and lifetime totals on this device. Badges are lifetime."
+    text: "Scores below are this game’s totals - and lifetime totals - on THIS DEVICE. Badges are lifetime."
   }));
 
   const list = createEl("div", { className: "stack" });
@@ -1526,6 +1523,7 @@ function renderGameOver() {
 
 // ---------- Kick things off ----------
 render();
+
 
 
 
