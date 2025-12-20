@@ -1030,6 +1030,13 @@ function startVoting() {
   render();
 }
 
+function resetVotingToChoiceScreen() {
+  const vState = state.game.voting;
+  vState.pendingAccuserIndex = null;
+  vState.pendingContinueIndex = null;
+  vState.continueSlots = null;
+}
+
 function renderVoting() {
   const vState = state.game.voting;
   const currentVoterIndex = vState.voterIndex;
@@ -1086,6 +1093,15 @@ function renderVoting() {
       text: "Tap the correct confirmation button to finalize your Continue vote."
     }));
 
+card.appendChild(createEl("button", {
+  className: "secondary",
+  text: "Go Back",
+  onClick: () => {
+    resetVotingToChoiceScreen();
+    render();
+  }
+}));
+
     const list = createEl("div", { className: "stack" });
     vState.continueSlots.forEach(slot => {
       list.appendChild(createEl("button", {
@@ -1110,6 +1126,15 @@ function renderVoting() {
 
     card.appendChild(createEl("h1", { className: "section-title", text: `${accuser.name}: choose who to accuse` }));
     card.appendChild(createEl("p", { className: "hint", text: "Tap one player to accuse them of being the Impostor." }));
+
+card.appendChild(createEl("button", {
+  className: "secondary",
+  text: "Go Back",
+  onClick: () => {
+    resetVotingToChoiceScreen();
+    render();
+  }
+}));
 
     const list = createEl("div", { className: "stack" });
     state.playersInGame.forEach((p, idx) => {
@@ -1523,6 +1548,7 @@ function renderGameOver() {
 
 // ---------- Kick things off ----------
 render();
+
 
 
 
