@@ -1,6 +1,6 @@
 // ---------- Persistent data & basic state ----------
 
-const GAME_VERSION = "1.4.2"; // <-- manually update this
+const GAME_VERSION = "1.4.3"; // <-- manually update this
 
 const STORAGE_KEY = "imposter_word_game_v1";
 
@@ -1548,6 +1548,7 @@ function renderGameOver() {
 
 // ---------- Kick things off ----------
 render();
+
 
 
 
